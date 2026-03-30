@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Data and experiment artifacts
+data/
+datasets/
+models/
+outputs/
+artifacts/
+checkpoints/
+runs/
+mlruns/
+wandb/
+
+# Model and export files
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.engine
+*.h5
+*.pkl
+*.joblib
+
+# Video outputs
+*.mp4
+*.avi
+*.mov
+*.mkv
+
+# Local configuration
+.env
+.env.*
+*.local
+
+# Local tooling marker
+.codex

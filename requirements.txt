@@ -1,0 +1,5 @@
+numpy>=2.0
+pandas>=2.2
+opencv-python>=4.10
+streamlit>=1.35
+torch>=2.2

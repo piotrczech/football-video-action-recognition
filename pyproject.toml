@@ -3,7 +3,7 @@ requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "football-video-action-recognition"
+name = "murawa"
 version = "0.1.0"
 description = "Baseline setup for football video action recognition project."
 readme = "README.md"
@@ -17,6 +17,10 @@ dev = [
   "ruff>=0.6",
   "black>=24.8",
 ]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["murawa*"]
 
 [tool.pytest.ini_options]
 minversion = "8.0"

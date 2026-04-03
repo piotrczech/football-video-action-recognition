@@ -23,15 +23,23 @@ htmlcov/
 Thumbs.db
 
 # Data and experiment artifacts
-data/
+data/**
+models/**
+outputs/**
 datasets/
-models/
-outputs/
 artifacts/
 checkpoints/
 runs/
 mlruns/
 wandb/
+
+# Keep repository scaffolding in tracked dirs
+!data/**/
+!models/**/
+!outputs/**/
+!data/**/.gitkeep
+!models/**/.gitkeep
+!outputs/**/.gitkeep
 
 # Model and export files
 *.pt

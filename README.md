@@ -38,4 +38,7 @@ pyenv activate football
 # upgrade pip and install dependencies
 pip install --upgrade pip
 pip install -r requirements.txt
+
+# install project in editable mode (enables package imports from scripts/)
+pip install -e .
 ```

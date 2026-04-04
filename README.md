@@ -42,3 +42,57 @@ pip install -r requirements.txt
 # install project in editable mode (enables package imports from scripts/)
 pip install -e .
 ```
+
+## Quick start (Stage 1 mock flow)
+
+This repository now contains a simple mock integration flow for two model names:
+- `yolo`
+- `rf` (alias for `rfdetr`)
+
+Model implementations are organized in `src/murawa/models/`:
+- `yolo.py`
+- `rfdetr.py`
+- `factory.py` (shared model selection)
+
+### 1) Run mock training
+
+```bash
+python scripts/train.py --model yolo --dataset-variant base-format
+python scripts/train.py --model rf --dataset-variant base-format
+```
+
+This creates:
+- checkpoint files in `models/checkpoints/<run_name>/`,
+- metadata in `models/metadata/<run_name>/`.
+
+### 2) Run mock prediction from CLI
+
+```bash
+# frame-style analysis
+python scripts/predict.py --model yolo --dataset-variant base-format --mode image
+
+# match-style analysis
+python scripts/predict.py --model rf --dataset-variant base-format --mode video
+```
+
+Outputs are written to:
+- `outputs/predictions/<run_name>/prediction_summary.json`
+- `outputs/predictions/<run_name>/*_prediction.txt`
+
+### 3) Run Streamlit skeleton
+
+```bash
+streamlit run app/streamlit_app.py
+```
+
+Minimal Streamlit structure:
+- `app/streamlit_app.py` - main entry + navigation
+- `app/pages/frame_page.py` - page: `Analizuj klatkę`
+- `app/pages/match_page.py` - page: `Analizuj mecz`
+- `app/ui_common.py` - shared UI helpers (upload/result/common selects)
+
+Both views support:
+- optional file upload,
+- model selection,
+- dataset variant selection,
+- running mock processing and previewing the result.

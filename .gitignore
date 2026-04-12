@@ -60,6 +60,7 @@ wandb/
 # Local configuration
 .env
 .env.*
+!.env.example
 *.local
 
 # Local tooling marker

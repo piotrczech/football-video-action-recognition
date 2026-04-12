@@ -52,12 +52,12 @@ Run:
 python scripts/prepare_raw_data.py
 ```
 
-The script will report missing datasets and print the next required step.  
+The script will report missing datasets and print the next required step.
 The most important setup details are:
 
-- a `.env` file is required and must contain `SOCCERNET_PASSWORD`
+- a `.env` file containing `SOCCERNET_PASSWORD` is required only when using `python scripts/prepare_raw_data.py --download-soccernet`
 - the downloaded ball-extra dataset must be extracted into `data/raw/ball-extra` (<a href="https://universe.roboflow.com/footballvisionai/playersdetection-2-vfmys/dataset/2" target="_blank" rel="noopener noreferrer">link</a>)
-- SoccerNet data should be downloaded into `data/raw/soccernet` with `python scripts/prepare_raw_data.py --download-soccernet`
+- SoccerNet data can be downloaded into `data/raw/soccernet` with `python scripts/prepare_raw_data.py --download-soccernet`
 
 If everything is correct, the validation output should look like this:
 ```bash

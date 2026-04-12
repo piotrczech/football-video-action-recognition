@@ -66,8 +66,6 @@ def rel(path: Path) -> str:
 
 
 def load_env_values() -> dict[str, str]:
-    if dotenv_values is None:
-        raise PrepareError("Missing dependency 'python-dotenv'. Install with: pip install python-dotenv")
     if not ENV_PATH.exists():
         return {}
     return {k: v for k, v in dotenv_values(ENV_PATH).items() if isinstance(v, str) and v.strip()}
@@ -125,15 +123,25 @@ def safe_extract_archive(archive: Path, destination: Path) -> None:
         raise PrepareError(f"Failed to extract archive: {rel(archive)} ({exc})") from exc
 
 
+def archive_marker_signature(archive: Path) -> str:
+    stat = archive.stat()
+    return f"{stat.st_size}:{stat.st_mtime_ns}"
+
+
 def extract_archives_once(root: Path) -> None:
     root.mkdir(parents=True, exist_ok=True)
     for archive in sorted(root.glob("*.zip"), key=lambda p: p.name):
         marker = root / f".{archive.name}.extracted"
+        signature = archive_marker_signature(archive)
         if marker.exists():
-            continue
+            try:
+                if marker.read_text(encoding="utf-8").strip() == signature:
+                    continue
+            except OSError:
+                pass
         logger.info("Extracting archive: %s", rel(archive))
         safe_extract_archive(archive, root)
-        marker.write_text("ok\n", encoding="utf-8")
+        marker.write_text(f"{signature}\n", encoding="utf-8")
 
 
 def move_path(src: Path, dst: Path) -> None:

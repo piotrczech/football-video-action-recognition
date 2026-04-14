@@ -8,16 +8,16 @@ MODELS = ["yolo", "rf"]
 
 
 def dataset_variants() -> list[str]:
-    training_root = ROOT / "data" / "training"
-    if not training_root.exists():
-        return ["base-format"]
+    ready_root = ROOT / "data" / "ready"
+    if not ready_root.exists():
+        return ["base"]
 
     variants = sorted(
-        p.name for p in training_root.iterdir() if p.is_dir() and not p.name.startswith(".")
+        p.name for p in ready_root.iterdir() if p.is_dir() and not p.name.startswith(".")
     )
-    if "base-format" not in variants:
-        variants.insert(0, "base-format")
-    return variants or ["base-format"]
+    if "base" not in variants:
+        variants.insert(0, "base")
+    return variants or ["base"]
 
 
 def save_upload(uploaded_file) -> str | None:

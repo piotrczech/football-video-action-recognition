@@ -1,4 +1,7 @@
 from dataclasses import dataclass
+from pathlib import Path
+
+from murawa.services.artifacts import StandardizedArtifactCallback
 
 
 @dataclass
@@ -22,3 +25,35 @@ class RfDetrMockModel:
             {"frame_index": 20, "class": "player", "confidence": 0.87, "track_id": 8},
             {"frame_index": 21, "class": "referee", "confidence": 0.75, "track_id": 15},
         ]
+
+
+@dataclass
+class RfDetrAdapter:
+    """Issue #11: target integration layer for real RF-DETR backend."""
+
+    name: str = "rfdetr"
+
+    def train(
+        self,
+        dataset_variant: str,
+        *,
+        config_path: Path | None = None,
+        output_dir: Path | None = None,
+        artifact_callback: StandardizedArtifactCallback | None = None,
+    ) -> dict:
+        raise NotImplementedError(
+            "TODO(Issue #11): implement RF-DETR training adapter compatible with shared project flow "
+            "(shared dataset format, shared config handling, shared metadata/checkpoint outputs)."
+        )
+
+    def predict(
+        self,
+        input_path: Path,
+        *,
+        checkpoint_path: Path,
+        mode: str,
+    ) -> list[dict]:
+        raise NotImplementedError(
+            "TODO(Issue #11): implement RF-DETR inference adapter for frame/match modes "
+            "with the same output schema expected by common pipeline services."
+        )

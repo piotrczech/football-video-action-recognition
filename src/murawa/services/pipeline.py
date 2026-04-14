@@ -45,7 +45,7 @@ def _run_analysis(
     out_dir = project_root / PREDICTIONS_ROOT / run_name
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    resolved_input, input_found = _resolve_input(project_root, mode, input_path)
+    resolved_input, input_found = _resolve_input(project_root, mode, dataset_variant, input_path)
     detections = build_model(normalized_model).predict(mode)
     summary_path = out_dir / "prediction_summary.json"
     preview_path = out_dir / f"{mode}_prediction.txt"
@@ -85,10 +85,12 @@ def _run_analysis(
     return payload
 
 
-def _resolve_input(project_root: Path, mode: str, input_path: str | None) -> tuple[str, bool]:
+def _resolve_input(
+    project_root: Path, mode: str, dataset_variant: str, input_path: str | None
+) -> tuple[str, bool]:
     if input_path:
         uploaded = Path(input_path)
         return str(uploaded), uploaded.exists()
 
     fallback_mode = "image" if mode == "frame" else "video"
-    return pick_input(project_root, fallback_mode)
+    return pick_input(project_root, fallback_mode, dataset_variant)

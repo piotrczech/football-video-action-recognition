@@ -13,14 +13,9 @@ The final system should:
 
 The experimental track compares YOLO and RF-DETR, including data-variant impact analysis.
 
-## Current Status (Stages 1-5)
-- Stage 1: foundation, interfaces, and standards ([context](context/01-STAGE.md))
-- Stage 2: data preparation and shared input flow ([context](context/02-STAGE.md))
-- Stage 3: model training and artifact standardization ([context](context/03-STAGE.md))
-- Stage 4: Streamlit and end-to-end integration ([context](context/04-STAGE.md))
-- Stage 5: final reports and project wrap-up ([context](context/05-STAGE.md))
+## Project setup
 
-## Environment Setup (pyenv)
+### Install
 
 ```bash
 # install a chosen Python version (e.g. 3.13.x)
@@ -41,10 +36,9 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
-## Raw Data Setup
+### Prepare raw data
 
 To start working with this repository, the required datasets must be available locally.  
-To make this easier, a small helper script has been prepared together with basic validation and recovery hints.
 
 Run:
 
@@ -68,56 +62,59 @@ Verification files
 - Dataset soccernet: OK
 ```
 
-## Quick Start (Stage 1 mock flow)
+### Convert raw data to useable data format
 
-This repository contains a mock integration flow for model names:
-- `yolo`
-- `rf` (alias for `rfdetr`)
+Training data variants are expected in: `data/ready/<variant>/<split>/`
 
-Model implementations are organized in `src/murawa/models/`:
-- `yolo.py`
-- `rfdetr.py`
-- `factory.py` (shared model selection)
+Each split must contain:
+- `_annotations.coco.json` (COCO format with `images`, `annotations`, `categories`)
+- image files referenced by `file_name` in COCO (path relative to the split directory)
 
-### 1) Run mock training
+To generate everything use:
 
 ```bash
-python scripts/train.py --model yolo --dataset-variant base-format
-python scripts/train.py --model rf --dataset-variant base-format
+# build all three variants
+python scripts/bootstrap_base_variant.py --force
+
+# build one selected variant
+python scripts/bootstrap_base_variant.py --variant extended --force
+```
+
+Then inspect prepared data in the app:
+
+```bash
+streamlit run app/streamlit_app.py
+```
+
+### Run model training
+
+Train a model by running
+
+```bash
+python scripts/train.py --model yolo --dataset-variant base
+python scripts/train.py --model rf --dataset-variant base
 ```
 
 This creates:
 - checkpoint files in `models/checkpoints/<run_name>/`,
 - metadata in `models/metadata/<run_name>/`.
 
-### 2) Run mock prediction from CLI
+### Predict data
 
 ```bash
 # frame-style analysis
-python scripts/predict.py --model yolo --dataset-variant base-format --mode image
+python scripts/predict.py --model yolo --dataset-variant base --mode image
 
 # match-style analysis
-python scripts/predict.py --model rf --dataset-variant base-format --mode video
+python scripts/predict.py --model rf --dataset-variant base --mode video
 ```
 
 Outputs are written to:
 - `outputs/predictions/<run_name>/prediction_summary.json`
 - `outputs/predictions/<run_name>/*_prediction.txt`
 
-### 3) Run Streamlit skeleton
+### Use internet APP by streamlit GUI
 
 ```bash
 streamlit run app/streamlit_app.py
 ```
-
-Minimal Streamlit structure:
-- `app/streamlit_app.py` - main entry + navigation
-- `app/pages/frame_page.py` - page: `Analizuj klatkę`
-- `app/pages/match_page.py` - page: `Analizuj mecz`
-- `app/ui_common.py` - shared UI helpers (upload/result/common selects)
-
-Both views support:
-- optional file upload,
-- model selection,
-- dataset variant selection,
-- running mock processing and previewing the result.

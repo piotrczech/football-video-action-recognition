@@ -1,19 +1,19 @@
 from pathlib import Path
 
-TRAINING_ROOT = Path("data/training")
-TEST_INPUT_ROOT = Path("data/test/base-format")
+READY_ROOT = Path("data/ready")
 PREDICTIONS_ROOT = Path("outputs/predictions")
 
 
 def training_path(project_root: Path, dataset_variant: str) -> Path:
-    specific = project_root / TRAINING_ROOT / dataset_variant
+    # TODO(Issue #9): finalize explicit variant naming/resolution strategy in data/ready.
+    specific = project_root / READY_ROOT / dataset_variant
     if specific.exists():
         return specific
-    return project_root / TRAINING_ROOT / "base-format"
+    return project_root / READY_ROOT / "base"
 
 
-def pick_input(project_root: Path, mode: str) -> tuple[str, bool]:
-    root = project_root / TEST_INPUT_ROOT
+def pick_input(project_root: Path, mode: str, dataset_variant: str = "base") -> tuple[str, bool]:
+    root = training_path(project_root, dataset_variant) / "test"
     if not root.exists():
         return str(root), False
 

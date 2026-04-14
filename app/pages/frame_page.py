@@ -20,3 +20,7 @@ def render() -> None:
             input_path=save_upload(uploaded),
         )
         show_result(result)
+
+
+if __name__ == "__main__":
+    render()

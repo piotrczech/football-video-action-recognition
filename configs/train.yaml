@@ -1,8 +1,19 @@
 model:
   name: placeholder
 training:
-  epochs: 1
-  batch_size: 2
+  epochs: 3
+  batch_size: 8
   learning_rate: 0.001
 runtime:
   seed: 42
+yolo:
+  image_size: 320
+  epochs: 3
+  batch_size: 8
+  learning_rate: 0.001
+  device: cpu
+  max_train_samples: 128
+  max_valid_samples: 64
+  detection_confidence: 0.25
+  checkpoint_tag: auto
+  weights: yolov8n.pt

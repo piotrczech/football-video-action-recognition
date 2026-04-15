@@ -95,6 +95,11 @@ python scripts/train.py --model yolo --dataset-variant base
 python scripts/train.py --model rf --dataset-variant base
 ```
 
+Notes:
+- `yolo` uses the real Ultralytics backend by default.
+- To force developer fallback mock for YOLO, set `MURAWA_YOLO_MOCK=1` before running scripts.
+- `rf` (`rfdetr`) still follows the current mock path until Issue #11 is implemented.
+
 This creates:
 - checkpoint files in `models/checkpoints/<run_name>/`,
 - metadata in `models/metadata/<run_name>/`.
@@ -108,6 +113,8 @@ python scripts/predict.py --model yolo --dataset-variant base --mode image
 # match-style analysis
 python scripts/predict.py --model rf --dataset-variant base --mode video
 ```
+
+Note: `mode=video` for YOLO currently uses MVP match flow (frame-by-frame inference with lightweight track id assignment, without advanced multi-object tracker).
 
 Outputs are written to:
 - `outputs/predictions/<run_name>/prediction_summary.json`

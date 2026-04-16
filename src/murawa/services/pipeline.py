@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+import json
 
 from murawa.data.path_resolver import PREDICTIONS_ROOT, pick_input
 from murawa.models import build_model, build_training_adapter, normalize_model_name
@@ -49,8 +50,11 @@ def _run_analysis(
     resolved_input, input_found = _resolve_input(project_root, mode, dataset_variant, input_path)
     checkpoint_path = (project_root / CKPT_DIR / run_name / "model.pt").resolve()
 
-    use_mock_yolo = normalized_model == "yolo" and _env_flag("MURAWA_YOLO_MOCK")
-    use_real_yolo_adapter = normalized_model == "yolo" and not use_mock_yolo
+    use_mock_yolo, use_real_yolo_adapter = _resolve_yolo_backend_mode(
+        project_root=project_root,
+        run_name=run_name,
+        normalized_model=normalized_model,
+    )
     if use_real_yolo_adapter and not input_found:
         base_payload["status"] = "error"
         base_payload["resolved_input"] = resolved_input
@@ -59,6 +63,17 @@ def _run_analysis(
             "Podaj --input-path lub upewnij się, że w katalogu test istnieją pliki media."
         )
         return base_payload
+
+    if use_real_yolo_adapter:
+        resolved_path = Path(resolved_input)
+        if resolved_path.exists() and not resolved_path.is_file():
+            base_payload["status"] = "error"
+            base_payload["resolved_input"] = resolved_input
+            base_payload["message"] = (
+                "Sciezka wejsciowa dla realnego backendu YOLO musi wskazywac plik, "
+                f"otrzymano katalog: {resolved_input}"
+            )
+            return base_payload
 
     try:
         if use_real_yolo_adapter:
@@ -120,6 +135,46 @@ def _env_flag(name: str) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _resolve_yolo_backend_mode(
+    project_root: Path,
+    run_name: str,
+    normalized_model: str,
+) -> tuple[bool, bool]:
+    if normalized_model != "yolo":
+        return True, False
+
+    # Developer override has top priority.
+    if _env_flag("MURAWA_YOLO_MOCK"):
+        return True, False
+
+    metadata = _load_run_train_metadata(project_root=project_root, run_name=run_name)
+    is_mock_run = metadata.get("is_mock_run")
+    backend = str(metadata.get("backend", "")).strip().lower()
+
+    if isinstance(is_mock_run, bool):
+        return is_mock_run, not is_mock_run
+
+    # Backward compatibility for older runs without explicit is_mock_run.
+    if backend in {"mock", "yolo-mock", "yolomockmodel"}:
+        return True, False
+    if backend:
+        return False, True
+
+    # Default for missing metadata fields: prefer real adapter for yolo.
+    return False, True
+
+
+def _load_run_train_metadata(project_root: Path, run_name: str) -> dict:
+    metadata_path = project_root / META_DIR / run_name / "train_metadata.json"
+    if not metadata_path.exists() or not metadata_path.is_file():
+        return {}
+    try:
+        payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
 def _resolve_input(
     project_root: Path, mode: str, dataset_variant: str, input_path: str | None
 ) -> tuple[str, bool]:
@@ -127,5 +182,5 @@ def _resolve_input(
         uploaded = Path(input_path)
         return str(uploaded), uploaded.exists()
 
-    fallback_mode = "image" if mode == "frame" else "video"
+    fallback_mode = "frame" if mode == "frame" else "match"
     return pick_input(project_root, fallback_mode, dataset_variant)

@@ -1,0 +1,25 @@
+Metadata-Version: 2.1
+Name: google-measurement-protocol
+Version: 1.1.0
+Summary: A Python implementation of Google Analytics Measurement Protocol
+Home-page: UNKNOWN
+Author: Mirumee Software
+Author-email: hello@mirumee.com
+License: BSD
+Platform: any
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: BSD License
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: Python
+Classifier: Programming Language :: Python :: 3.5
+Classifier: Programming Language :: Python :: 3.6
+Classifier: Programming Language :: Python :: 3.7
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Topic :: Software Development :: Libraries :: Python Modules
+Requires-Dist: requests (<3.0a0,>=2.0)
+Requires-Dist: prices (>=1.0.0)
+Requires-Dist: typing (>=3.6.0) ; python_version < "3.5"
+
+UNKNOWN
+
+

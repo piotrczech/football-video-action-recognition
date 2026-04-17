@@ -62,6 +62,7 @@ wandb/
 .env.*
 !.env.example
 *.local
+football/
 
 # Local tooling marker
 .codex

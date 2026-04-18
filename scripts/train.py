@@ -62,12 +62,19 @@ def main() -> int:
     meta_dir.mkdir(parents=True, exist_ok=True)
 
     model_impl = build_model(model_name)
-    train_result = model_impl.train(args.dataset_variant)
-    checkpoint_path = ckpt_dir / "model.pt"
-    torch.save(
-        {"mock": True, "model": model_name, "weights": train_result["weights"]},
-        checkpoint_path,
-    )
+    if type(model_impl).__name__ == "RfDetrAdapter":
+        train_result = model_impl.train(
+            dataset_variant=args.dataset_variant,
+            output_dir=ckpt_dir
+        )
+        checkpoint_path = ckpt_dir / "model.pt"
+    else:
+        train_result = model_impl.train(args.dataset_variant)
+        checkpoint_path = ckpt_dir / "model.pt"
+        torch.save(
+            {"mock": True, "model": model_name, "weights": train_result["weights"]},
+            checkpoint_path,
+        )
 
     cfg_path = Path(args.config)
     cfg_found = save_config(cfg_path, meta_dir / "config.yaml", model_name, args.dataset_variant)

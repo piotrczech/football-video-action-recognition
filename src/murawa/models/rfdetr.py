@@ -105,8 +105,7 @@ class RfDetrAdapter:
 
         rfdetr_cls = _import_rfdetr()
         try:
-            # We assume cfg["weights"] provides the base model, e.g. "rfdetr-base.pt"
-            model = rfdetr_cls(cfg["weights"])
+            model = rfdetr_cls()
         except Exception as exc:
             raise RuntimeError(
                 f"RF-DETR backend initialization failed for weights='{cfg['weights']}': {exc}"
@@ -118,11 +117,14 @@ class RfDetrAdapter:
         # 3. Execute training
         try:
             results = model.train(
-                data=str(data_yaml_path),
+                dataset_dir=str(data_yaml_path.parent),
                 epochs=cfg["epochs"],
+                accelerator="gpu", # works for me with cuda, remove if not available!
+                devices = 1, # the same as above
                 batch=cfg["batch_size"],
                 imgsz=cfg["image_size"],
-                device=cfg["device"],
+                # device=cfg["device"],
+                device="cuda", # comment this and use the line above if no cuda
                 lr0=cfg["learning_rate"],
                 seed=cfg["seed"],
                 workers=0,
@@ -259,8 +261,8 @@ MAP50_COLUMNS = ("metrics/mAP50(B)", "metrics/mAP50-95(B)")
 
 def _import_rfdetr():
     try:
-        from rfdetr import RFDETR
-        return RFDETR
+        from rfdetr import RFDETRMedium
+        return RFDETRMedium
     except ImportError as exc:
         raise RuntimeError(
             "Roboflow RF-DETR backend is unavailable. Install dependencies with: pip install rfdetr"

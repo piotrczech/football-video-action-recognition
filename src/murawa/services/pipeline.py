@@ -46,18 +46,32 @@ def _run_analysis(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     resolved_input, input_found = _resolve_input(project_root, mode, dataset_variant, input_path)
-    detections = build_model(normalized_model).predict(mode)
+    
+    checkpoint_path = project_root / CKPT_DIR / run_name / "model.pt"
+    model_instance = build_model(normalized_model)
+    
+    if type(model_instance).__name__ == "RfDetrAdapter":
+        detections = model_instance.predict(
+            input_path=Path(resolved_input),
+            checkpoint_path=checkpoint_path,
+            mode=mode
+        )
+        is_mock = False
+    else:
+        detections = model_instance.predict(mode)
+        is_mock = True
+
     summary_path = out_dir / "prediction_summary.json"
     preview_path = out_dir / f"{mode}_prediction.txt"
 
     payload = {
         "status": "ok",
-        "mock": True,
+        "mock": is_mock,  # <-- TUTA ZMIENIAMY NA ZMIENNĄ
         "mode": mode,
         "model": normalized_model,
         "dataset_variant": dataset_variant,
         "resolved_run_name": run_name,
-        "checkpoint_path": str(project_root / CKPT_DIR / run_name / "model.pt"),
+        "checkpoint_path": str(checkpoint_path),
         "metadata_path": str(project_root / META_DIR / run_name),
         "resolved_input": resolved_input,
         "input_found": input_found,

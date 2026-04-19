@@ -45,3 +45,9 @@ def show_result(result: dict) -> None:
     preview_path = Path(result.get("preview_path", ""))
     if preview_path.exists():
         st.text_area("Podgląd wyniku", preview_path.read_text(encoding="utf-8"), height=160)
+
+    preview_assets = result.get("preview_assets", [])
+    for asset in preview_assets[:3]:
+        preview_file = Path(asset)
+        if preview_file.exists():
+            st.image(str(preview_file), caption=preview_file.name, use_container_width=True)

@@ -1,8 +1,9 @@
 import os
 from pathlib import Path
-import json
 
-from murawa.data.path_resolver import PREDICTIONS_ROOT, pick_input
+import cv2
+
+from murawa.data.path_resolver import IMAGE_SUFFIXES, PREDICTIONS_ROOT, VIDEO_SUFFIXES, pick_input
 from murawa.models import build_model, build_training_adapter, normalize_model_name
 from murawa.services.artifacts import CKPT_DIR, META_DIR, latest_run, write_json
 
@@ -31,6 +32,9 @@ def _run_analysis(
         "resolved_input": "",
         "output_dir": "",
         "summary_path": "",
+        "preview_path": "",
+        "preview_assets": [],
+        "stats": {},
         "detections": [],
     }
 
@@ -39,7 +43,7 @@ def _run_analysis(
     except FileNotFoundError:
         base_payload["status"] = "missing_run"
         base_payload["message"] = (
-            "Brak gotowego runu/checkpointu. Najpierw uruchom trening mock, np.: "
+            "Brak gotowego runu/checkpointu. Najpierw uruchom trening, np.: "
             f"python scripts/train.py --model {normalized_model} --dataset-variant {dataset_variant}"
         )
         return base_payload
@@ -50,35 +54,52 @@ def _run_analysis(
     resolved_input, input_found = _resolve_input(project_root, mode, dataset_variant, input_path)
     checkpoint_path = (project_root / CKPT_DIR / run_name / "model.pt").resolve()
 
-    use_mock_yolo, use_real_yolo_adapter = _resolve_yolo_backend_mode(
-        project_root=project_root,
-        run_name=run_name,
-        normalized_model=normalized_model,
-    )
+    use_real_yolo_adapter = normalized_model == "yolo" and not _env_flag("MURAWA_YOLO_MOCK")
+
     if use_real_yolo_adapter and not input_found:
+        expected = "obraz" if mode == "frame" else "wideo"
         base_payload["status"] = "error"
         base_payload["resolved_input"] = resolved_input
         base_payload["message"] = (
-            "Nie znaleziono poprawnego pliku wejściowego dla realnego backendu YOLO. "
-            "Podaj --input-path lub upewnij się, że w katalogu test istnieją pliki media."
+            f"Nie znaleziono poprawnego pliku wejściowego ({expected}) dla backendu YOLO. "
+            "Podaj --input-path lub upewnij się, że plik istnieje w katalogu test."
         )
         return base_payload
 
+    resolved_path = Path(resolved_input) if resolved_input else None
     if use_real_yolo_adapter:
-        resolved_path = Path(resolved_input)
-        if resolved_path.exists() and not resolved_path.is_file():
+        if resolved_path is None or not resolved_path.exists() or not resolved_path.is_file():
             base_payload["status"] = "error"
             base_payload["resolved_input"] = resolved_input
             base_payload["message"] = (
-                "Sciezka wejsciowa dla realnego backendu YOLO musi wskazywac plik, "
-                f"otrzymano katalog: {resolved_input}"
+                "Sciezka wejsciowa dla backendu YOLO musi wskazywac plik. "
+                f"Otrzymano: {resolved_input}"
+            )
+            return base_payload
+
+        suffix = resolved_path.suffix.lower()
+        if mode == "frame" and suffix not in IMAGE_SUFFIXES:
+            base_payload["status"] = "error"
+            base_payload["resolved_input"] = resolved_input
+            base_payload["message"] = (
+                f"Tryb frame wymaga pliku obrazu. Otrzymano suffix='{suffix}', "
+                f"oczekiwano jednego z {sorted(IMAGE_SUFFIXES)}."
+            )
+            return base_payload
+
+        if mode == "match" and suffix not in VIDEO_SUFFIXES:
+            base_payload["status"] = "error"
+            base_payload["resolved_input"] = resolved_input
+            base_payload["message"] = (
+                f"Tryb match wymaga pliku wideo. Otrzymano suffix='{suffix}', "
+                f"oczekiwano jednego z {sorted(VIDEO_SUFFIXES)}."
             )
             return base_payload
 
     try:
         if use_real_yolo_adapter:
             detections = build_training_adapter(normalized_model).predict(
-                input_path=Path(resolved_input),
+                input_path=resolved_path,
                 checkpoint_path=checkpoint_path,
                 mode=mode,
             )
@@ -95,6 +116,16 @@ def _run_analysis(
     summary_path = out_dir / "prediction_summary.json"
     preview_path = out_dir / f"{mode}_prediction.txt"
 
+    stats = _build_detection_stats(detections=detections, mode=mode)
+    preview_assets: list[str] = []
+    if use_real_yolo_adapter and resolved_path is not None:
+        preview_assets = _write_preview_assets(
+            input_path=resolved_path,
+            detections=detections,
+            mode=mode,
+            out_dir=out_dir,
+        )
+
     payload = {
         "status": "ok",
         "mock": is_mock,
@@ -109,6 +140,8 @@ def _run_analysis(
         "output_dir": str(out_dir),
         "summary_path": str(summary_path),
         "preview_path": str(preview_path),
+        "preview_assets": preview_assets,
+        "stats": stats,
         "detections": detections,
     }
     write_json(summary_path, payload)
@@ -120,7 +153,9 @@ def _run_analysis(
                 f"model={normalized_model}",
                 f"dataset_variant={dataset_variant}",
                 f"resolved_input={resolved_input}",
-                f"detections={len(detections)}",
+                f"detections={stats.get('total_detections', 0)}",
+                f"classes={stats.get('classes', {})}",
+                f"preview_assets={len(preview_assets)}",
                 "Mock prediction output placeholder." if is_mock else "Real adapter output.",
                 "",
             ]
@@ -130,57 +165,174 @@ def _run_analysis(
     return payload
 
 
+def _build_detection_stats(detections: list[dict], mode: str) -> dict:
+    by_class: dict[str, int] = {}
+    confidences: list[float] = []
+
+    for detection in detections:
+        class_name = str(detection.get("class", "unknown"))
+        by_class[class_name] = by_class.get(class_name, 0) + 1
+
+        confidence = detection.get("confidence")
+        if isinstance(confidence, (int, float)):
+            confidences.append(float(confidence))
+
+    stats = {
+        "total_detections": len(detections),
+        "classes": by_class,
+        "mean_confidence": (sum(confidences) / len(confidences)) if confidences else 0.0,
+    }
+
+    if mode == "match":
+        frame_indexes = {
+            int(detection["frame_index"])
+            for detection in detections
+            if isinstance(detection.get("frame_index"), int)
+        }
+        track_ids = {
+            int(detection["track_id"])
+            for detection in detections
+            if isinstance(detection.get("track_id"), int)
+        }
+        stats["frames_with_detections"] = len(frame_indexes)
+        stats["unique_track_ids"] = len(track_ids)
+
+    return stats
+
+
+def _write_preview_assets(
+    input_path: Path,
+    detections: list[dict],
+    mode: str,
+    out_dir: Path,
+) -> list[str]:
+    preview_dir = out_dir / "preview"
+    preview_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        if mode == "frame":
+            return _write_frame_preview(input_path=input_path, detections=detections, preview_dir=preview_dir)
+        if mode == "match":
+            return _write_match_preview(input_path=input_path, detections=detections, preview_dir=preview_dir)
+    except Exception:
+        return []
+
+    return []
+
+
+def _write_frame_preview(input_path: Path, detections: list[dict], preview_dir: Path) -> list[str]:
+    image = cv2.imread(str(input_path))
+    if image is None:
+        return []
+
+    for detection in detections:
+        bbox = detection.get("bbox_xyxy")
+        if not isinstance(bbox, list) or len(bbox) != 4:
+            continue
+
+        try:
+            x1, y1, x2, y2 = [int(v) for v in bbox]
+        except (TypeError, ValueError):
+            continue
+
+        class_name = str(detection.get("class", "unknown"))
+        confidence = detection.get("confidence")
+        confidence_text = f" {float(confidence):.2f}" if isinstance(confidence, (int, float)) else ""
+
+        cv2.rectangle(image, (x1, y1), (x2, y2), (0, 220, 255), 2)
+        cv2.putText(
+            image,
+            f"{class_name}{confidence_text}",
+            (x1, max(15, y1 - 6)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (0, 220, 255),
+            2,
+        )
+
+    cv2.putText(
+        image,
+        f"detections={len(detections)}",
+        (10, 22),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.6,
+        (255, 255, 255),
+        2,
+    )
+
+    preview_path = preview_dir / "frame_preview.jpg"
+    if not cv2.imwrite(str(preview_path), image):
+        return []
+
+    return [str(preview_path)]
+
+
+def _write_match_preview(input_path: Path, detections: list[dict], preview_dir: Path) -> list[str]:
+    suffix = input_path.suffix.lower()
+    if suffix not in VIDEO_SUFFIXES:
+        return []
+
+    frame_counts: dict[int, int] = {}
+    for detection in detections:
+        frame_index = detection.get("frame_index")
+        if isinstance(frame_index, int):
+            frame_counts[frame_index] = frame_counts.get(frame_index, 0) + 1
+
+    target_frames = sorted(frame_counts.keys())[:3]
+    if not target_frames:
+        target_frames = [0]
+
+    cap = cv2.VideoCapture(str(input_path))
+    if not cap.isOpened():
+        return []
+
+    assets: list[str] = []
+    wanted = set(target_frames)
+    max_frame = max(target_frames)
+    frame_index = -1
+
+    try:
+        while wanted:
+            ok, frame = cap.read()
+            if not ok:
+                break
+
+            frame_index += 1
+            if frame_index not in wanted:
+                if frame_index > max_frame:
+                    break
+                continue
+
+            count = frame_counts.get(frame_index, 0)
+            cv2.putText(
+                frame,
+                f"frame={frame_index} detections={count}",
+                (10, 22),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (255, 255, 255),
+                2,
+            )
+            out_path = preview_dir / f"match_preview_{frame_index:06d}.jpg"
+            if cv2.imwrite(str(out_path), frame):
+                assets.append(str(out_path))
+            wanted.remove(frame_index)
+    finally:
+        cap.release()
+
+    return assets
+
+
 def _env_flag(name: str) -> bool:
     value = os.environ.get(name, "")
     return value.strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _resolve_yolo_backend_mode(
-    project_root: Path,
-    run_name: str,
-    normalized_model: str,
-) -> tuple[bool, bool]:
-    if normalized_model != "yolo":
-        return True, False
-
-    # Developer override has top priority.
-    if _env_flag("MURAWA_YOLO_MOCK"):
-        return True, False
-
-    metadata = _load_run_train_metadata(project_root=project_root, run_name=run_name)
-    is_mock_run = metadata.get("is_mock_run")
-    backend = str(metadata.get("backend", "")).strip().lower()
-
-    if isinstance(is_mock_run, bool):
-        return is_mock_run, not is_mock_run
-
-    # Backward compatibility for older runs without explicit is_mock_run.
-    if backend in {"mock", "yolo-mock", "yolomockmodel"}:
-        return True, False
-    if backend:
-        return False, True
-
-    # Default for missing metadata fields: prefer real adapter for yolo.
-    return False, True
-
-
-def _load_run_train_metadata(project_root: Path, run_name: str) -> dict:
-    metadata_path = project_root / META_DIR / run_name / "train_metadata.json"
-    if not metadata_path.exists() or not metadata_path.is_file():
-        return {}
-    try:
-        payload = json.loads(metadata_path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    return payload if isinstance(payload, dict) else {}
 
 
 def _resolve_input(
     project_root: Path, mode: str, dataset_variant: str, input_path: str | None
 ) -> tuple[str, bool]:
     if input_path:
-        uploaded = Path(input_path)
+        uploaded = Path(input_path).resolve()
         return str(uploaded), uploaded.exists()
 
-    fallback_mode = "frame" if mode == "frame" else "match"
-    return pick_input(project_root, fallback_mode, dataset_variant)
+    return pick_input(project_root, mode, dataset_variant)

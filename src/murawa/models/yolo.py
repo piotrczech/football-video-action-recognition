@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 import csv
 import importlib
+import importlib.util
 import math
 from pathlib import Path
 import random
@@ -51,6 +52,8 @@ class YoloAdapter:
         config_path: Path | None = None,
         output_dir: Path | None = None,
         artifact_callback: StandardizedArtifactCallback | None = None,
+        amp: bool | None = None,
+        device: str | None = None,
     ) -> dict:
         if output_dir is None:
             raise ValueError("YoloAdapter.train requires output_dir to persist model checkpoint.")
@@ -60,6 +63,10 @@ class YoloAdapter:
         project_root = _resolve_project_root(output_dir=output_dir)
 
         cfg = _resolve_training_config(config_path)
+        if amp is not None:
+            cfg["amp"] = amp
+        if device is not None:
+            cfg["device"] = device
         _seed_everything(cfg["seed"])
 
         try:
@@ -104,6 +111,7 @@ class YoloAdapter:
         )
 
         yolo_cls = _import_ultralytics_yolo()
+        _patch_ultralytics_if_polars_missing()
         try:
             model = yolo_cls(cfg["weights"])
         except Exception as exc:
@@ -114,21 +122,26 @@ class YoloAdapter:
         run_root = output_dir / "ultralytics_runs"
         run_root.mkdir(parents=True, exist_ok=True)
         try:
-            results = model.train(
-                data=str(data_yaml_path),
-                epochs=cfg["epochs"],
-                batch=cfg["batch_size"],
-                imgsz=cfg["image_size"],
-                device=cfg["device"],
-                lr0=cfg["learning_rate"],
-                seed=cfg["seed"],
-                workers=0,
-                project=str(run_root),
-                name="train",
-                exist_ok=True,
-                verbose=False,
-                pretrained=True,
-            )
+            train_kwargs: dict[str, Any] = {
+                "data": str(data_yaml_path),
+                "epochs": cfg["epochs"],
+                "batch": cfg["batch_size"],
+                "imgsz": cfg["image_size"],
+                "lr0": cfg["learning_rate"],
+                "seed": cfg["seed"],
+                "workers": 0,
+                "project": str(run_root),
+                "name": "train",
+                "exist_ok": True,
+                "verbose": False,
+                "plots": False,
+                "pretrained": True,
+                "amp": cfg["amp"],
+            }
+            if cfg["device"] is not None:
+                train_kwargs["device"] = cfg["device"]
+
+            results = model.train(**train_kwargs)
         except Exception as exc:
             raise RuntimeError(f"YOLO backend training failed: {exc}") from exc
 
@@ -151,7 +164,8 @@ class YoloAdapter:
             "note": note,
             "mock": False,
             "backend": self.backend,
-            "train_device": str(cfg["device"]),
+            "train_device": str(cfg["device"]) if cfg["device"] is not None else "auto",
+            "train_amp": bool(cfg["amp"]),
             "train_samples": len(train_split.samples),
             "valid_samples": len(valid_split.samples),
             "valid_split_source": valid_split_name,
@@ -255,21 +269,23 @@ MAP50_COLUMNS = ("metrics/mAP50(B)", "metrics/mAP50-95(B)")
 
 
 def _resolve_training_config(config_path: Path | None) -> dict[str, Any]:
-    cfg_path = config_path.resolve() if config_path is not None else None
+    if config_path is None:
+        raise ValueError("YoloAdapter.train requires config_path for explicit training settings.")
 
-    raw_cfg: dict[str, Any] = {}
-    if cfg_path is not None and cfg_path.exists():
-        try:
-            payload = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
-        except Exception as exc:
-            raise RuntimeError(f"Could not parse training config '{cfg_path}': {exc}") from exc
-        if not isinstance(payload, dict):
-            raise RuntimeError(f"Training config '{cfg_path}' must contain a mapping at top-level.")
-        raw_cfg = payload
+    cfg_path = config_path.resolve()
+    if not cfg_path.exists() or not cfg_path.is_file():
+        raise FileNotFoundError(f"Training config file does not exist: {cfg_path}")
 
-    training_cfg = raw_cfg.get("training") if isinstance(raw_cfg.get("training"), dict) else {}
-    runtime_cfg = raw_cfg.get("runtime") if isinstance(raw_cfg.get("runtime"), dict) else {}
-    yolo_cfg = raw_cfg.get("yolo") if isinstance(raw_cfg.get("yolo"), dict) else {}
+    try:
+        payload = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise RuntimeError(f"Could not parse training config '{cfg_path}': {exc}") from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"Training config '{cfg_path}' must contain a mapping at top-level.")
+
+    training_cfg = _require_mapping(payload.get("training"), key="training", config_path=cfg_path)
+    runtime_cfg = _require_mapping(payload.get("runtime"), key="runtime", config_path=cfg_path)
+    yolo_cfg = _require_mapping(payload.get("yolo"), key="yolo", config_path=cfg_path)
 
     return {
         "epochs": _as_int(yolo_cfg.get("epochs", training_cfg.get("epochs", 1)), key="epochs", minimum=1),
@@ -283,10 +299,11 @@ def _resolve_training_config(config_path: Path | None) -> dict[str, Any]:
             key="learning_rate",
             minimum=0.0,
         ),
+        "amp": _as_bool(yolo_cfg.get("amp", True), key="amp"),
         "image_size": _as_int(yolo_cfg.get("image_size", 320), key="image_size", minimum=64),
-        "device": str(yolo_cfg.get("device", "cpu")),
-        "max_train_samples": _as_optional_int(yolo_cfg.get("max_train_samples", 128), "max_train_samples"),
-        "max_valid_samples": _as_optional_int(yolo_cfg.get("max_valid_samples", 64), "max_valid_samples"),
+        "device": _as_optional_device(yolo_cfg.get("device")),
+        "max_train_samples": _as_optional_int(yolo_cfg.get("max_train_samples", None), "max_train_samples"),
+        "max_valid_samples": _as_optional_int(yolo_cfg.get("max_valid_samples", None), "max_valid_samples"),
         "seed": _as_int(runtime_cfg.get("seed", 42), key="seed", minimum=0),
         "weights": str(yolo_cfg.get("weights", "yolov8n.pt")),
     }
@@ -301,28 +318,33 @@ def _resolve_project_root(output_dir: Path) -> Path:
 
 def _resolve_detection_confidence(checkpoint_path: Path) -> float:
     default_confidence = 0.25
-    try:
-        run_name = checkpoint_path.parent.name
-        project_root = checkpoint_path.parents[3]
-        config_path = project_root / "models" / "metadata" / run_name / "config.yaml"
-        if not config_path.exists() or not config_path.is_file():
-            return default_confidence
-
-        payload = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-        if not isinstance(payload, dict):
-            return default_confidence
-
-        yolo_cfg = payload.get("yolo")
-        if not isinstance(yolo_cfg, dict):
-            return default_confidence
-
-        raw = yolo_cfg.get("detection_confidence", default_confidence)
-        confidence = _as_float(raw, key="detection_confidence", minimum=0.0)
-        if confidence > 1.0:
-            return default_confidence
-        return confidence
-    except Exception:
+    run_name = checkpoint_path.parent.name
+    project_root = checkpoint_path.parents[3]
+    config_path = project_root / "models" / "metadata" / run_name / "config.yaml"
+    if not config_path.exists() or not config_path.is_file():
         return default_confidence
+
+    try:
+        payload = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise RuntimeError(f"Could not parse prediction config '{config_path}': {exc}") from exc
+
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"Saved training config '{config_path}' must contain a mapping at top-level.")
+
+    yolo_cfg = payload.get("yolo")
+    if yolo_cfg is None:
+        return default_confidence
+    if not isinstance(yolo_cfg, dict):
+        raise RuntimeError(f"Saved training config '{config_path}' has invalid 'yolo' section.")
+
+    raw = yolo_cfg.get("detection_confidence", default_confidence)
+    confidence = _as_float(raw, key="detection_confidence", minimum=0.0)
+    if confidence > 1.0:
+        raise ValueError(
+            f"Config value 'detection_confidence' must be <= 1.0, got: {confidence} (run={run_name})."
+        )
+    return confidence
 
 
 def _seed_everything(seed: int) -> None:
@@ -581,6 +603,33 @@ def _import_ultralytics_yolo():
     return yolo_cls
 
 
+def _patch_ultralytics_if_polars_missing() -> None:
+    if importlib.util.find_spec("polars") is not None:
+        return
+
+    try:
+        trainer_module = importlib.import_module("ultralytics.engine.trainer")
+    except Exception:
+        return
+
+    base_trainer = getattr(trainer_module, "BaseTrainer", None)
+    if base_trainer is None or getattr(base_trainer, "_murawa_polars_patch", False):
+        return
+
+    def _read_results_csv_without_polars(self):
+        # Keep training/checkpoint save working when optional polars is unavailable.
+        return {}
+
+    base_trainer.read_results_csv = _read_results_csv_without_polars
+    base_trainer._murawa_polars_patch = True
+
+
+def _require_mapping(value: Any, *, key: str, config_path: Path) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise RuntimeError(f"Training config '{config_path}' must include a mapping section '{key}'.")
+    return value
+
+
 def _as_int(value: Any, *, key: str, minimum: int) -> int:
     try:
         parsed = int(value)
@@ -596,6 +645,19 @@ def _as_optional_int(value: Any, key: str) -> int | None:
         return None
     parsed = _as_int(value, key=key, minimum=1)
     return parsed
+
+
+def _as_optional_device(value: Any) -> str | None:
+    if value is None:
+        return None
+    parsed = str(value).strip()
+    return parsed or None
+
+
+def _as_bool(value: Any, *, key: str) -> bool:
+    if isinstance(value, bool):
+        return value
+    raise ValueError(f"Config value '{key}' must be a boolean, got: {value!r}")
 
 
 def _as_float(value: Any, *, key: str, minimum: float) -> float:

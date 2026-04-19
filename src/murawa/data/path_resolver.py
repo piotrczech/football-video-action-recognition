@@ -38,16 +38,10 @@ def pick_input(project_root: Path, mode: str, dataset_variant: str = "base") -> 
 
 
 def _suffixes_for_mode(mode: str) -> set[str]:
-    if mode == "image":
-        return IMAGE_SUFFIXES
-
     if mode == "frame":
         return IMAGE_SUFFIXES
 
-    if mode == "video":
-        return VIDEO_SUFFIXES
-
     if mode == "match":
-        return VIDEO_SUFFIXES | IMAGE_SUFFIXES
+        return VIDEO_SUFFIXES
 
     return set()

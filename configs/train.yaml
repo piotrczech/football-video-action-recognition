@@ -1,8 +1,20 @@
-model:
-  name: placeholder
+# Common parameters
 training:
-  epochs: 1
-  batch_size: 2
-  learning_rate: 0.001
+  epochs: 10  
+  batch_size: 2      
+  learning_rate: 0.0001
+
 runtime:
   seed: 42
+
+# rf_detr
+model:
+  name: rf_detr
+  backbone: dinov2_vits14 
+  patch_size: 14
+  img_size: 728
+  weights: "rfdetr-m.pt"
+# YOLO
+yolo_config:
+  imgsz: 640
+  model: yolov8n.pt

@@ -105,7 +105,10 @@ class RfDetrAdapter:
 
         rfdetr_cls = _import_rfdetr()
         try:
-            model = rfdetr_cls()
+            if not cfg["weights"] or cfg["weights"] in ["rfdetr-base.pt", "rfdetr-m.pt"]:
+                model = rfdetr_cls()
+            else:
+                model = rfdetr_cls(pretrain_weights=cfg["weights"])
         except Exception as exc:
             raise RuntimeError(
                 f"RF-DETR backend initialization failed for weights='{cfg['weights']}': {exc}"
@@ -174,14 +177,15 @@ class RfDetrAdapter:
 
         input_path = input_path.resolve()
         checkpoint_path = checkpoint_path.resolve()
-        if not input_path.exists() or not input_path.is_file():
+        
+        if not input_path.exists():
             raise FileNotFoundError(f"Prediction input does not exist: {input_path}")
         if not checkpoint_path.exists() or not checkpoint_path.is_file():
             raise FileNotFoundError(f"RF-DETR checkpoint does not exist: {checkpoint_path}")
 
         rfdetr_cls = _import_rfdetr()
         try:
-            model = rfdetr_cls(str(checkpoint_path))
+            model = rfdetr_cls(pretrain_weights=str(checkpoint_path))
         except Exception as exc:
             raise RuntimeError(f"RF-DETR backend failed to load checkpoint '{checkpoint_path}': {exc}") from exc
 
@@ -198,7 +202,31 @@ class RfDetrAdapter:
                 raise RuntimeError(f"RF-DETR frame prediction failed: {exc}") from exc
             return _convert_results_to_frame_schema(results)
 
-        # Match mode
+        
+        if input_path.is_dir():
+            frame_batches: list[tuple[int, list[dict]]] = []
+            image_files = sorted(
+                [p for p in input_path.iterdir() if p.suffix.lower() in IMAGE_SUFFIXES]
+            )
+            
+            if not image_files:
+                 raise ValueError(f"No supported image files found in directory: {input_path}")
+                 
+            for frame_index, img_file in enumerate(image_files):
+                try:
+                    batch_results = model.predict(
+                        source=str(img_file),
+                        conf=detection_confidence,
+                        verbose=False,
+                    )
+                except Exception as exc:
+                    raise RuntimeError(f"RF-DETR match prediction failed for image '{img_file}': {exc}") from exc
+                
+                detections = _extract_frame_detections(batch_results)
+                frame_batches.append((frame_index, detections))
+            
+            return _to_match_schema(frame_batches=frame_batches, max_distance_px=55.0)
+
         if input_path.suffix.lower() in IMAGE_SUFFIXES:
             try:
                 results = model.predict(
@@ -210,11 +238,10 @@ class RfDetrAdapter:
                 raise RuntimeError(f"RF-DETR match prediction failed for image input: {exc}") from exc
             frame_detections = _extract_frame_detections(results)
             return _to_match_schema(frame_batches=[(0, frame_detections)], max_distance_px=55.0)
-
         if input_path.suffix.lower() not in VIDEO_SUFFIXES:
             raise ValueError(
                 f"Unsupported file suffix '{input_path.suffix}' for mode='match'. "
-                f"Expected image ({sorted(IMAGE_SUFFIXES)}) or video ({sorted(VIDEO_SUFFIXES)})."
+                f"Expected image ({sorted(IMAGE_SUFFIXES)}), video ({sorted(VIDEO_SUFFIXES)}), or a directory of images."
             )
 
         cap = cv2.VideoCapture(str(input_path))
@@ -403,19 +430,34 @@ def _write_split_as_yolo(split: LoadedSplit, split_root: Path, category_to_idx: 
 
 def _resolve_best_checkpoint(results: Any) -> Path:
     save_dir = getattr(results, "save_dir", None)
+
     if save_dir is None:
-        raise RuntimeError("RF-DETR training completed but no save_dir was returned.")
+        save_dir = "output"
 
     save_dir_path = Path(str(save_dir)).resolve()
-    best = save_dir_path / "weights" / "best.pt"
-    if best.exists() and best.is_file():
-        return best
 
-    last = save_dir_path / "weights" / "last.pt"
-    if last.exists() and last.is_file():
-        return last
+    potential_paths = [
+        save_dir_path / "weights" / "best.pt",
+        save_dir_path / "weights" / "last.pt",
+        save_dir_path / "checkpoints" / "best.ckpt",
+        save_dir_path / "checkpoints" / "last.ckpt",
+        save_dir_path / "model.pt",
+        save_dir_path / "best.pt",
+        save_dir_path / "last.pt"
+    ]
 
-    raise RuntimeError(f"RF-DETR training completed but checkpoint was not found in '{save_dir_path / 'weights'}'.")
+    for path in potential_paths:
+        if path.exists() and path.is_file():
+            return path
+
+    if save_dir_path.exists():
+        for ext in ["*.ckpt", "*.pt", "*.pth"]:
+            found_files = list(save_dir_path.rglob(ext))
+            if found_files:
+                found_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+                return found_files[0]
+
+    raise RuntimeError(f"RF-DETR training completed, but no checkpoint was found in '{save_dir_path}'.")
 
 def _extract_training_metrics(results: Any, fallback_epochs: int) -> dict[str, Any]:
     metrics: dict[str, Any] = {"epochs": fallback_epochs, "loss": 0.0, "mAP50": 0.0}

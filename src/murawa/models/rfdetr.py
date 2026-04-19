@@ -58,7 +58,23 @@ class RfDetrAdapter:
         output_dir.mkdir(parents=True, exist_ok=True)
         project_root = _resolve_project_root(output_dir=output_dir)
 
-        cfg = _resolve_training_config(config_path)
+        with open(config_path, "r", encoding="utf-8") as f:
+            raw_cfg = yaml.safe_load(f)
+
+        rf_cfg = raw_cfg.get("rf_detr", {})
+        
+        cfg = {
+            "seed": raw_cfg.get("runtime", {}).get("seed", 42),
+            "epochs": rf_cfg.get("epochs", 10),
+            "batch_size": rf_cfg.get("batch_size", 2),
+            "learning_rate": rf_cfg.get("learning_rate", 0.0001),
+            "image_size": rf_cfg.get("img_size", 728),
+            "weights": rf_cfg.get("weights", "rfdetr-m.pt"),
+            "max_train_samples": rf_cfg.get("max_train_samples", None),
+            "max_valid_samples": rf_cfg.get("max_valid_samples", None),
+            "device": "cuda",
+        }
+        
         _seed_everything(cfg["seed"])
 
         # 1. Load data splits using common pipeline loader

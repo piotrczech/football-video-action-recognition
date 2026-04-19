@@ -1,6 +1,6 @@
 # Common parameters
 training:
-  epochs: 10
+  epochs: 3
   batch_size: 2
   learning_rate: 0.0001
 
@@ -18,7 +18,7 @@ model:
 # YOLO specific config (preserved from origin/master)
 yolo:
   image_size: 640
-  epochs: 12
+  epochs: 4
   batch_size: 8
   learning_rate: 0.001
   max_train_samples: null

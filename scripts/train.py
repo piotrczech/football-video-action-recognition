@@ -25,6 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PROFILE_CONFIGS = {
     "quick": ROOT / "configs" / "train.quick.yaml",
     "full": ROOT / "configs" / "train.full.yaml",
+    "rf": ROOT / "configs" / "train.rf.yaml",
 }
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")

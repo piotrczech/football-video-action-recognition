@@ -2,6 +2,8 @@ from pathlib import Path
 
 READY_ROOT = Path("data/ready")
 PREDICTIONS_ROOT = Path("outputs/predictions")
+IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp"}
+VIDEO_SUFFIXES = {".mp4", ".avi", ".mov", ".mkv", ".webm"}
 
 
 def training_path(project_root: Path, dataset_variant: str) -> Path:
@@ -17,18 +19,29 @@ def pick_input(project_root: Path, mode: str, dataset_variant: str = "base") -> 
     if not root.exists():
         return str(root), False
 
-    files = [p for p in root.rglob("*") if p.is_file() and not p.name.startswith(".")]
+    files = sorted(
+        (p for p in root.rglob("*") if p.is_file() and not p.name.startswith(".")),
+        key=lambda p: str(p).lower(),
+    )
     if not files:
         return str(root), False
 
-    if mode == "image":
-        for p in files:
-            if p.suffix.lower() in {".jpg", ".jpeg", ".png", ".bmp"}:
-                return str(p), True
+    allowed_suffixes = _suffixes_for_mode(mode)
+    if not allowed_suffixes:
+        return str(root), False
 
-    if mode == "video":
-        for p in files:
-            if p.suffix.lower() in {".mp4", ".avi", ".mov", ".mkv"}:
-                return str(p), True
+    candidates = [p for p in files if p.suffix.lower() in allowed_suffixes]
+    if not candidates:
+        return str(root), False
 
-    return str(files[0]), True
+    return str(candidates[0]), True
+
+
+def _suffixes_for_mode(mode: str) -> set[str]:
+    if mode == "frame":
+        return IMAGE_SUFFIXES
+
+    if mode == "match":
+        return VIDEO_SUFFIXES
+
+    return set()

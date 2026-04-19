@@ -91,9 +91,21 @@ streamlit run app/streamlit_app.py
 Train a model by running
 
 ```bash
-python scripts/train.py --model yolo --dataset-variant base
+python scripts/train.py --model yolo --dataset-variant base --profile quick
+python scripts/train.py --model yolo --dataset-variant base --profile full
+python scripts/train.py --model yolo --dataset-variant base --profile quick --no-amp
+python scripts/train.py --model yolo --dataset-variant base --profile quick --force-cpu
 python scripts/train.py --model rf --dataset-variant base
 ```
+
+Notes:
+- `yolo` uses the real Ultralytics backend by default.
+- Device is auto-selected by backend (`GPU` when available, otherwise `CPU`).
+- Use `--no-amp` to disable AMP for YOLO (recommended when debugging ROCm instability/segfaults).
+- Use `--force-cpu` to force CPU execution for YOLO regardless of profile config.
+- To force developer fallback mock for YOLO, set `MURAWA_YOLO_MOCK=1` before running scripts.
+- Static training profiles are stored in `configs/train.quick.yaml` and `configs/train.full.yaml`.
+- `rf` (`rfdetr`) still follows the current mock path until Issue #11 is implemented.
 
 This creates:
 - checkpoint files in `models/checkpoints/<run_name>/`,
@@ -103,15 +115,18 @@ This creates:
 
 ```bash
 # frame-style analysis
-python scripts/predict.py --model yolo --dataset-variant base --mode image
+python scripts/predict.py --model yolo --dataset-variant base --mode frame
 
 # match-style analysis
-python scripts/predict.py --model rf --dataset-variant base --mode video
+python scripts/predict.py --model yolo --dataset-variant base --mode match --input-path /path/to/match.mp4
 ```
+
+Note: `mode=match` requires a video input. If no fallback video is found in `data/ready/<variant>/test`, pass `--input-path`.
 
 Outputs are written to:
 - `outputs/predictions/<run_name>/prediction_summary.json`
 - `outputs/predictions/<run_name>/*_prediction.txt`
+- `outputs/predictions/<run_name>/preview/*.jpg` (mini preview frames/images)
 
 ### Use internet APP by streamlit GUI
 

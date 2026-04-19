@@ -1,0 +1,17 @@
+model:
+  name: yolo
+training:
+  epochs: 12
+  batch_size: 8
+  learning_rate: 0.001
+runtime:
+  seed: 42
+yolo:
+  image_size: 640
+  epochs: 12
+  batch_size: 8
+  learning_rate: 0.001
+  max_train_samples: null
+  max_valid_samples: null
+  detection_confidence: 0.25
+  weights: yolov8n.pt

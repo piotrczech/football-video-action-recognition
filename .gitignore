@@ -10,6 +10,7 @@ env/
 .ruff_cache/
 .mypy_cache/
 .coverage
+.python-version
 coverage.xml
 htmlcov/
 

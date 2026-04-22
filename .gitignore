@@ -33,8 +33,6 @@ checkpoints/
 runs/
 mlruns/
 wandb/
-output/
-models/checkpoints
 
 # Keep repository scaffolding in tracked dirs
 !data/**/

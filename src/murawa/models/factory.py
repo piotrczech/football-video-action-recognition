@@ -17,7 +17,7 @@ def build_model(model: str):
     normalized = normalize_model_name(model)
     if normalized == "yolo":
         return YoloMockModel()
-    return RfDetrMockModel()
+    return RfDetrAdapter()
 
 
 def build_training_adapter(model: str):

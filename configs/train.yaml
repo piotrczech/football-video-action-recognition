@@ -1,14 +1,24 @@
-model:
-  name: yolo
+# Common parameters
 training:
-  epochs: 12
-  batch_size: 8
-  learning_rate: 0.001
+  epochs: 3
+  batch_size: 2
+  learning_rate: 0.0001
+
 runtime:
   seed: 42
+
+# Active model config (defaulting to rf_detr based on your current work)
+model:
+  name: rf_detr
+  backbone: dinov2_vits14 
+  patch_size: 14
+  img_size: 728
+  weights: "rfdetr-m.pt"
+
+# YOLO specific config (preserved from origin/master)
 yolo:
   image_size: 640
-  epochs: 12
+  epochs: 4
   batch_size: 8
   learning_rate: 0.001
   max_train_samples: null

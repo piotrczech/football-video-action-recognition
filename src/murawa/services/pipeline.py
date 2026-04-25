@@ -54,26 +54,30 @@ def _run_analysis(
     resolved_input, input_found = _resolve_input(project_root, mode, dataset_variant, input_path)
     checkpoint_path = (project_root / CKPT_DIR / run_name / "model.pt").resolve()
 
-    use_real_yolo_adapter = normalized_model == "yolo" and not _env_flag("MURAWA_YOLO_MOCK")
+    # Shared flags for inference mode
+    use_real_yolo = normalized_model == "yolo" and not _env_flag("MURAWA_YOLO_MOCK")
+    use_rf_detr = normalized_model in ["rfdetr", "rf_detr", "rf"]
+    use_real_inference = use_real_yolo or use_rf_detr
 
-    if use_real_yolo_adapter and not input_found:
-        expected = "obraz" if mode == "frame" else "wideo"
+    if use_real_inference and not input_found:
+        expected = "image" if mode == "frame" else "video"
         base_payload["status"] = "error"
         base_payload["resolved_input"] = resolved_input
         base_payload["message"] = (
-            f"Nie znaleziono poprawnego pliku wejściowego ({expected}) dla backendu YOLO. "
-            "Podaj --input-path lub upewnij się, że plik istnieje w katalogu test."
+            f"Could not find a valid input file ({expected}) for {normalized_model}. "
+            "Provide --input-path or ensure the file exists in the test directory."
         )
         return base_payload
 
     resolved_path = Path(resolved_input) if resolved_input else None
-    if use_real_yolo_adapter:
+    
+    if use_real_inference:
         if resolved_path is None or not resolved_path.exists() or not resolved_path.is_file():
             base_payload["status"] = "error"
             base_payload["resolved_input"] = resolved_input
             base_payload["message"] = (
-                "Sciezka wejsciowa dla backendu YOLO musi wskazywac plik. "
-                f"Otrzymano: {resolved_input}"
+                f"Input path for {normalized_model} backend must point to a file. "
+                f"Received: {resolved_input}"
             )
             return base_payload
 
@@ -82,8 +86,8 @@ def _run_analysis(
             base_payload["status"] = "error"
             base_payload["resolved_input"] = resolved_input
             base_payload["message"] = (
-                f"Tryb frame wymaga pliku obrazu. Otrzymano suffix='{suffix}', "
-                f"oczekiwano jednego z {sorted(IMAGE_SUFFIXES)}."
+                f"Frame mode requires an image file. Received suffix='{suffix}', "
+                f"expected one of {sorted(IMAGE_SUFFIXES)}."
             )
             return base_payload
 
@@ -91,13 +95,21 @@ def _run_analysis(
             base_payload["status"] = "error"
             base_payload["resolved_input"] = resolved_input
             base_payload["message"] = (
-                f"Tryb match wymaga pliku wideo. Otrzymano suffix='{suffix}', "
-                f"oczekiwano jednego z {sorted(VIDEO_SUFFIXES)}."
+                f"Match mode requires a video file. Received suffix='{suffix}', "
+                f"expected one of {sorted(VIDEO_SUFFIXES)}."
             )
             return base_payload
 
     try:
-        if use_real_yolo_adapter:
+        if use_rf_detr:
+            model_instance = build_model(normalized_model)
+            detections = model_instance.predict(
+                input_path=resolved_path,
+                checkpoint_path=checkpoint_path,
+                mode=mode
+            )
+            is_mock = False
+        elif use_real_yolo:
             detections = build_training_adapter(normalized_model).predict(
                 input_path=resolved_path,
                 checkpoint_path=checkpoint_path,
@@ -118,7 +130,8 @@ def _run_analysis(
 
     stats = _build_detection_stats(detections=detections, mode=mode)
     preview_assets: list[str] = []
-    if use_real_yolo_adapter and resolved_path is not None:
+    
+    if use_real_inference and resolved_path is not None:
         preview_assets = _write_preview_assets(
             input_path=resolved_path,
             detections=detections,

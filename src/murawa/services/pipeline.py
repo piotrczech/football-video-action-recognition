@@ -56,7 +56,7 @@ def _run_analysis(
 
     # Shared flags for inference mode
     use_real_yolo = normalized_model == "yolo" and not _env_flag("MURAWA_YOLO_MOCK")
-    use_rf_detr = normalized_model in ["rfdetr", "rf_detr", "rf"]
+    use_rf_detr = normalized_model == "rfdetr"
     use_real_inference = use_real_yolo or use_rf_detr
 
     if use_real_inference and not input_found:
@@ -102,7 +102,7 @@ def _run_analysis(
 
     try:
         if use_rf_detr:
-            model_instance = build_model(normalized_model)
+            model_instance = build_training_adapter(normalized_model)
             detections = model_instance.predict(
                 input_path=resolved_path,
                 checkpoint_path=checkpoint_path,

@@ -60,23 +60,91 @@ def save_config(src: Path, dst: Path, model: str, dataset_variant: str) -> bool:
 
 
 def make_run_name(model: str, dataset_variant: str, created_at: datetime, tag: str = "auto") -> str:
-    return f"{model}_{dataset_variant}_{created_at.strftime('%Y%m%d-%H%M')}_{tag}"
+    return f"{model}_{dataset_variant}_{created_at.strftime('%Y%m%d-%H%M')}_{sanitize_run_tag(tag)}"
+
+
+def sanitize_run_tag(tag: str | None) -> str:
+    if tag is None:
+        return "auto"
+
+    cleaned = re.sub(r"[^a-z0-9_-]+", "-", tag.strip().lower())
+    cleaned = re.sub(r"-{2,}", "-", cleaned).strip("-_")
+    return cleaned or "auto"
 
 
 class StandardizedArtifactCallback:
     """Issue #14 contract: central callback for standardized checkpoint/metadata persistence."""
 
     def write_manifest(self, meta_dir: Path, manifest: ArtifactManifest) -> Path:
-        raise NotImplementedError(
-            "TODO(Issue #14): write run manifest with checkpoint location, resolved config source, "
-            "dataset variant and metrics references."
-        )
+        meta_dir = meta_dir.resolve()
+        meta_dir.mkdir(parents=True, exist_ok=True)
+        manifest_path = meta_dir / "manifest.json"
+        payload = {
+            "schema_version": 1,
+            "run_name": manifest.run_name,
+            "model": manifest.model,
+            "dataset_variant": manifest.dataset_variant,
+            "created_at_utc": manifest.created_at_utc,
+            "checkpoint": {
+                "file": manifest.checkpoint_file,
+                "relative_path": str(CKPT_DIR / manifest.run_name / manifest.checkpoint_file),
+            },
+            "metadata": {
+                "directory": str(META_DIR / manifest.run_name),
+                "required_files": list(manifest.required_metadata),
+                "manifest_file": manifest_path.name,
+            },
+        }
+        write_json(manifest_path, payload)
+        return manifest_path
 
     def validate_contract(self, context: ArtifactWriteContext) -> None:
-        raise NotImplementedError(
-            "TODO(Issue #14): validate required file layout and naming so cluster outputs are "
-            "directly usable by local prediction/integration flow."
-        )
+        project_root = context.project_root.resolve()
+        checkpoint_path = context.checkpoint_path.resolve()
+        metadata_dir = context.metadata_dir.resolve()
+        errors: list[str] = []
+
+        expected_checkpoint = (project_root / CKPT_DIR / context.run_name / "model.pt").resolve()
+        expected_metadata = (project_root / META_DIR / context.run_name).resolve()
+
+        if checkpoint_path != expected_checkpoint:
+            errors.append(f"checkpoint path should be '{expected_checkpoint}', got '{checkpoint_path}'")
+        if metadata_dir != expected_metadata:
+            errors.append(f"metadata dir should be '{expected_metadata}', got '{metadata_dir}'")
+        if not checkpoint_path.exists() or not checkpoint_path.is_file():
+            errors.append(f"missing checkpoint file: {checkpoint_path}")
+        if metadata_dir.exists() and not metadata_dir.is_dir():
+            errors.append(f"metadata path is not a directory: {metadata_dir}")
+        if not metadata_dir.exists():
+            errors.append(f"missing metadata directory: {metadata_dir}")
+
+        if metadata_dir.exists() and metadata_dir.is_dir():
+            for filename in REQUIRED_METADATA:
+                path = metadata_dir / filename
+                if not path.exists() or not path.is_file():
+                    errors.append(f"missing metadata file: {path}")
+                    continue
+                if filename.endswith(".json"):
+                    try:
+                        json.loads(path.read_text(encoding="utf-8"))
+                    except json.JSONDecodeError as exc:
+                        errors.append(f"invalid JSON in metadata file '{path}': {exc}")
+
+            train_metadata = metadata_dir / "train_metadata.json"
+            if train_metadata.exists() and train_metadata.is_file():
+                try:
+                    payload = json.loads(train_metadata.read_text(encoding="utf-8"))
+                except json.JSONDecodeError:
+                    payload = None
+                if isinstance(payload, dict) and payload.get("run_name") != context.run_name:
+                    errors.append(
+                        "train_metadata.json run_name mismatch: "
+                        f"expected '{context.run_name}', got '{payload.get('run_name')}'"
+                    )
+
+        if errors:
+            bullet_list = "\n- ".join(errors)
+            raise RuntimeError(f"Artifact contract validation failed for run '{context.run_name}':\n- {bullet_list}")
 
 
 def write_artifact_manifest(meta_dir: Path, manifest: ArtifactManifest) -> Path:

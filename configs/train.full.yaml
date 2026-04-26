@@ -15,3 +15,15 @@ yolo:
   max_valid_samples: null
   detection_confidence: 0.25
   weights: yolov8n.pt
+rfdetr:
+  resolution: 736
+  epochs: 12
+  batch_size: 4
+  grad_accum_steps: 4
+  learning_rate: 0.0001
+  checkpoint_interval: 10
+  max_train_samples: null
+  max_valid_samples: null
+  detection_confidence: 0.25
+  device: cuda
+  weights: default

@@ -148,6 +148,8 @@ def main() -> int:
 
     train_samples = int(train_result.get("train_samples", len(loaded_split.samples)))
     valid_samples = int(train_result.get("valid_samples", 0))
+    train_sampling_summary = dict(train_result.get("train_sampling_summary", {}))
+    valid_sampling_summary = dict(train_result.get("valid_sampling_summary", {}))
     backend_name = str(train_result.get("backend", "mock"))
     train_device = str(train_result.get("train_device", "cpu"))
     valid_split_source = str(train_result.get("valid_split_source", "valid"))
@@ -203,13 +205,15 @@ def main() -> int:
             "mock_note": note if is_mock_run else "",
             "loader_summary": {
                 "validated_split": loaded_split.split,
-                "sampled_images": train_samples,
+                "preflight_checked_images": len(loaded_split.samples),
                 "sampled_annotations": sampled_annotations,
                 "total_images_in_split": loaded_split.total_images,
                 "total_annotations_in_split": loaded_split.total_annotations,
                 "class_mapping_source": "coco.categories",
                 "class_mapping": {str(k): v for k, v in loaded_split.class_mapping.items()},
             },
+            "train_sampling_summary": train_sampling_summary,
+            "valid_sampling_summary": valid_sampling_summary,
         },
     )
 

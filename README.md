@@ -126,6 +126,7 @@ Notes:
 - Use `--force-cpu` to force CPU execution regardless of profile config.
 - To force developer fallback mock for YOLO, set `MURAWA_YOLO_MOCK=1` before running scripts.
 - Static training profiles are stored in `configs/train.quick.yaml`, `configs/train.full.yaml`, and `configs/train.rf.yaml`.
+- `quick` uses deterministic representative subsampling inside the requested split (`train`/`valid`) based on the config seed; it does not take the first `N` images and never consults `test`.
 
 This creates:
 - checkpoint files in `models/checkpoints/<run_name>/`,

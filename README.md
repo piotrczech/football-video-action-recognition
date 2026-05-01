@@ -120,7 +120,7 @@ Notes:
 - `yolo` uses the real Ultralytics backend by default.
 - `rf` (`rfdetr`) uses the real Roboflow RF-DETR backend.
 - Training artifacts always use `models/checkpoints/<run_name>/` and `models/metadata/<run_name>/`.
-- Run names follow `<model>_<datasetVariant>_<YYYYMMDD-HHMM>_<tag>`; pass `--name` to control the final tag.
+- If you pass `--name`, that value becomes the run name after sanitization. Without `--name`, an automatic name based on model, dataset variant, and timestamp is used.
 - Device is selected by backend/config (`GPU` when available, otherwise `CPU` where supported).
 - Use `--no-amp` to disable AMP for YOLO (recommended when debugging ROCm instability/segfaults).
 - Use `--force-cpu` to force CPU execution regardless of profile config.

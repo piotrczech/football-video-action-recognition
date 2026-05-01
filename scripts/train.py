@@ -41,7 +41,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--name",
         default="auto",
-        help="Optional run tag used as the last part of <model>_<variant>_<YYYYMMDD-HHMM>_<name>.",
+        help="Optional explicit run name. If omitted, an auto name based on model, variant, and timestamp is used.",
     )
     parser.add_argument(
         "--no-amp",
@@ -90,7 +90,7 @@ def main() -> int:
     if _non_empty_dir(ckpt_dir) or _non_empty_dir(meta_dir):
         logger.error(
             "Run directory already exists and is not empty: %s or %s. "
-            "Use a different --name or retry after the next minute.",
+            "Use a different --name or remove the conflicting run directory.",
             ckpt_dir,
             meta_dir,
         )

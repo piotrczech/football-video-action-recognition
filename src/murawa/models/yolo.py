@@ -75,6 +75,7 @@ class YoloAdapter:
                 dataset_variant=dataset_variant,
                 split="train",
                 max_samples=cfg["max_train_samples"],
+                sampling_seed=cfg["seed"],
             )
         except DataLoaderError as exc:
             raise RuntimeError(f"YOLO training data loading failed for split='train': {exc}") from exc
@@ -85,6 +86,7 @@ class YoloAdapter:
                 dataset_variant=dataset_variant,
                 split="valid",
                 max_samples=cfg["max_valid_samples"],
+                sampling_seed=cfg["seed"],
             )
             valid_split_name = "valid"
         except DataLoaderError:
@@ -95,6 +97,7 @@ class YoloAdapter:
                     dataset_variant=dataset_variant,
                     split="train",
                     max_samples=cfg["max_valid_samples"],
+                    sampling_seed=cfg["seed"],
                 )
             except DataLoaderError as exc:
                 raise RuntimeError(
@@ -169,6 +172,8 @@ class YoloAdapter:
             "train_samples": len(train_split.samples),
             "valid_samples": len(valid_split.samples),
             "valid_split_source": valid_split_name,
+            "train_sampling_summary": _sampling_summary_to_dict(train_split),
+            "valid_sampling_summary": _sampling_summary_to_dict(valid_split),
         }
 
     def predict(
@@ -685,3 +690,19 @@ def _read_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _sampling_summary_to_dict(split: LoadedSplit) -> dict[str, Any]:
+    if split.sampling_summary is None:
+        return {}
+    summary = split.sampling_summary
+    return {
+        "strategy": summary.strategy,
+        "seed": summary.seed,
+        "requested_max_samples": summary.requested_max_samples,
+        "original_sample_count": summary.original_sample_count,
+        "selected_sample_count": summary.selected_sample_count,
+        "source_counts": summary.source_counts,
+        "density_counts": summary.density_counts,
+        "ball_presence_counts": summary.ball_presence_counts,
+    }

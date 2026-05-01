@@ -18,6 +18,7 @@ from murawa.services.artifacts import (
     StandardizedArtifactCallback,
     make_run_name,
     save_config,
+    sanitize_run_tag,
     write_json,
 )
 
@@ -38,6 +39,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dataset-variant", required=True)
     parser.add_argument("--profile", choices=sorted(PROFILE_CONFIGS.keys()), default="full")
     parser.add_argument(
+        "--name",
+        default="auto",
+        help="Optional explicit run name. If omitted, an auto name based on model, variant, and timestamp is used.",
+    )
+    parser.add_argument(
         "--no-amp",
         action="store_true",
         help="Disable AMP for YOLO training (useful for ROCm/GPU stability checks).",
@@ -45,7 +51,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--force-cpu",
         action="store_true",
-        help="Force CPU device for YOLO training (overrides config device).",
+        help="Force CPU device for real model training (overrides config device).",
     )
     return parser.parse_args()
 
@@ -54,12 +60,15 @@ def main() -> int:
     args = parse_args()
     model_name = normalize_model_name(args.model)
     config_path = _resolve_profile_config(args.profile)
+    run_tag = sanitize_run_tag(args.name)
 
     use_mock_yolo = model_name == "yolo" and _env_flag("MURAWA_YOLO_MOCK")
-    use_real_adapter = model_name == "yolo" and not use_mock_yolo
+    use_real_adapter = not use_mock_yolo
     artifact_callback = StandardizedArtifactCallback()
     amp_override = False if args.no_amp else None
     device_override = "cpu" if args.force_cpu else None
+    if args.no_amp and model_name != "yolo":
+        logger.warning("--no-amp applies only to YOLO and will be ignored for model=%s.", model_name)
 
     try:
         loaded_split = load_training_split(
@@ -74,40 +83,43 @@ def main() -> int:
 
     sampled_annotations = sum(len(sample.annotations) for sample in loaded_split.samples)
     created_at = datetime.now(timezone.utc)
-    run_name = make_run_name(model_name, args.dataset_variant, created_at)
+    run_name = make_run_name(model_name, args.dataset_variant, created_at, tag=run_tag)
     
     ckpt_dir = ROOT / CKPT_DIR / run_name
     meta_dir = ROOT / META_DIR / run_name
+    if _non_empty_dir(ckpt_dir) or _non_empty_dir(meta_dir):
+        logger.error(
+            "Run directory already exists and is not empty: %s or %s. "
+            "Use a different --name or remove the conflicting run directory.",
+            ckpt_dir,
+            meta_dir,
+        )
+        return 1
+
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     meta_dir.mkdir(parents=True, exist_ok=True)
 
-    if model_name in ["rfdetr", "rf_detr", "rf"]:
-        model_impl = build_model(model_name)
-        train_result = model_impl.train(
-            dataset_variant=args.dataset_variant,
-            output_dir=ckpt_dir,
-            config_path=config_path 
-        )
+    if use_real_adapter:
+        model_impl = build_training_adapter(model_name)
+        train_kwargs = {
+            "config_path": config_path,
+            "output_dir": ckpt_dir,
+            "artifact_callback": artifact_callback,
+            "device": device_override,
+        }
+        if model_name == "yolo":
+            train_kwargs["amp"] = amp_override
+        train_result = model_impl.train(args.dataset_variant, **train_kwargs)
         if train_result is None:
             train_result = {}
-        checkpoint_path = ckpt_dir / "model.pt"
-        is_mock_run = False
-        
-    elif use_real_adapter:
-        model_impl = build_training_adapter(model_name)
-        train_result = model_impl.train(
-            args.dataset_variant,
-            config_path=config_path,
-            output_dir=ckpt_dir,
-            artifact_callback=artifact_callback,
-            amp=amp_override,
-            device=device_override,
-        )
         checkpoint_path = Path(
             train_result.get("weights", {}).get("checkpoint_path", str(ckpt_dir / "model.pt"))
         ).resolve()
+        if checkpoint_path != (ckpt_dir / "model.pt").resolve():
+            logger.error("%s adapter returned checkpoint outside standard path: %s", model_name, checkpoint_path)
+            return 1
         if not checkpoint_path.exists() or not checkpoint_path.is_file():
-            logger.error("YOLO adapter did not produce a valid checkpoint at: %s", checkpoint_path)
+            logger.error("%s adapter did not produce a valid checkpoint at: %s", model_name, checkpoint_path)
             return 1
         is_mock_run = bool(train_result.get("mock", False))
         
@@ -136,13 +148,18 @@ def main() -> int:
 
     train_samples = int(train_result.get("train_samples", len(loaded_split.samples)))
     valid_samples = int(train_result.get("valid_samples", 0))
+    train_sampling_summary = dict(train_result.get("train_sampling_summary", {}))
+    valid_sampling_summary = dict(train_result.get("valid_sampling_summary", {}))
     backend_name = str(train_result.get("backend", "mock"))
     train_device = str(train_result.get("train_device", "cpu"))
     valid_split_source = str(train_result.get("valid_split_source", "valid"))
     note = str(train_result.get("note", f"{model_name} training finished."))
     train_amp = train_result.get("train_amp")
     if train_amp is None:
-        train_amp = None if is_mock_run else (False if args.no_amp else True)
+        if model_name == "yolo" and not is_mock_run:
+            train_amp = False if args.no_amp else True
+        else:
+            train_amp = None
     train_device = "cpu" if args.force_cpu and not is_mock_run else train_device
 
     try:
@@ -171,6 +188,7 @@ def main() -> int:
             "framework": "pytorch",
             "backend": backend_name,
             "created_at_utc": created_at.isoformat(),
+            "run_tag": run_tag,
             "dataset_variant": args.dataset_variant,
             "resolved_training_path": str(loaded_split.variant_dir),
             "profile": args.profile,
@@ -187,13 +205,15 @@ def main() -> int:
             "mock_note": note if is_mock_run else "",
             "loader_summary": {
                 "validated_split": loaded_split.split,
-                "sampled_images": train_samples,
+                "preflight_checked_images": len(loaded_split.samples),
                 "sampled_annotations": sampled_annotations,
                 "total_images_in_split": loaded_split.total_images,
                 "total_annotations_in_split": loaded_split.total_annotations,
                 "class_mapping_source": "coco.categories",
                 "class_mapping": {str(k): v for k, v in loaded_split.class_mapping.items()},
             },
+            "train_sampling_summary": train_sampling_summary,
+            "valid_sampling_summary": valid_sampling_summary,
         },
     )
 
@@ -234,6 +254,10 @@ def _resolve_profile_config(profile: str) -> Path:
 def _env_flag(name: str) -> bool:
     value = os.environ.get(name, "")
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _non_empty_dir(path: Path) -> bool:
+    return path.exists() and path.is_dir() and any(path.iterdir())
 
 
 def _run_artifact_callback_hooks(

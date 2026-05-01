@@ -27,6 +27,7 @@ Thumbs.db
 data/**
 models/**
 outputs/**
+output/
 datasets/
 artifacts/
 checkpoints/

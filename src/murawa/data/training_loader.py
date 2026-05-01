@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
+import random
 
 READY_ROOT = Path("data/ready")
 TRAIN_SPLIT = "train"
@@ -34,6 +36,18 @@ class LoadedSample:
 
 
 @dataclass(frozen=True)
+class SamplingSummary:
+    strategy: str
+    seed: int | None
+    requested_max_samples: int
+    original_sample_count: int
+    selected_sample_count: int
+    source_counts: dict[str, int]
+    density_counts: dict[str, int]
+    ball_presence_counts: dict[str, int]
+
+
+@dataclass(frozen=True)
 class LoadedSplit:
     dataset_variant: str
     split: str
@@ -45,6 +59,7 @@ class LoadedSplit:
     samples: tuple[LoadedSample, ...]
     total_images: int
     total_annotations: int
+    sampling_summary: SamplingSummary | None = None
 
 
 @dataclass(frozen=True)
@@ -94,6 +109,8 @@ def load_training_split(
     dataset_variant: str,
     split: str = TRAIN_SPLIT,
     max_samples: int | None = None,
+    sampling_seed: int | None = None,
+    sampling_strategy: str = "deterministic_stratified",
 ) -> LoadedSplit:
     variant_dir = _resolve_variant_dir(project_root=project_root, dataset_variant=dataset_variant)
     payload, annotation_path, split_dir = _load_coco_payload(variant_dir=variant_dir, split=split)
@@ -148,6 +165,7 @@ def load_training_split(
             )
         )
 
+    sampling_summary: SamplingSummary | None = None
     if max_samples is not None:
         if max_samples <= 0:
             _raise_loader_error(
@@ -155,7 +173,12 @@ def load_training_split(
                 split=split,
                 detail=f"'max_samples' must be > 0 when provided, got {max_samples}.",
             )
-        samples = samples[:max_samples]
+        samples, sampling_summary = _sample_loaded_samples(
+            samples=samples,
+            max_samples=max_samples,
+            sampling_seed=sampling_seed,
+            sampling_strategy=sampling_strategy,
+        )
 
     return LoadedSplit(
         dataset_variant=dataset_variant,
@@ -168,6 +191,7 @@ def load_training_split(
         samples=tuple(samples),
         total_images=len(payload["images"]),
         total_annotations=len(payload["annotations"]),
+        sampling_summary=sampling_summary,
     )
 
 
@@ -421,6 +445,149 @@ def _int_field(
     return value
 
 
+def _sample_loaded_samples(
+    *,
+    samples: list[LoadedSample],
+    max_samples: int,
+    sampling_seed: int | None,
+    sampling_strategy: str,
+) -> tuple[list[LoadedSample], SamplingSummary]:
+    if max_samples >= len(samples):
+        selected = list(samples)
+        return selected, _build_sampling_summary(
+            selected=selected,
+            strategy=sampling_strategy,
+            seed=sampling_seed,
+            max_samples=max_samples,
+            original_count=len(samples),
+        )
+
+    if sampling_strategy != "deterministic_stratified":
+        raise ValueError(
+            f"Unsupported sampling_strategy='{sampling_strategy}'. Expected 'deterministic_stratified'."
+        )
+
+    rng = random.Random(sampling_seed)
+    indexed_samples = list(enumerate(samples))
+    buckets: dict[tuple[str, str, str], list[tuple[int, LoadedSample]]] = defaultdict(list)
+    for original_index, sample in indexed_samples:
+        key = (
+            _detect_sample_source(sample),
+            _annotation_density_bucket(sample),
+            _ball_presence_bucket(sample),
+        )
+        buckets[key].append((original_index, sample))
+
+    for bucket_samples in buckets.values():
+        rng.shuffle(bucket_samples)
+
+    selected_pairs = _allocate_stratified_sample(
+        buckets=buckets,
+        target_size=max_samples,
+        rng=rng,
+    )
+    selected = [sample for _, sample in selected_pairs]
+    summary = _build_sampling_summary(
+        selected=selected,
+        strategy=sampling_strategy,
+        seed=sampling_seed,
+        max_samples=max_samples,
+        original_count=len(samples),
+    )
+    return selected, summary
+
+
+def _allocate_stratified_sample(
+    *,
+    buckets: dict[tuple[str, str, str], list[tuple[int, LoadedSample]]],
+    target_size: int,
+    rng: random.Random,
+) -> list[tuple[int, LoadedSample]]:
+    total_size = sum(len(bucket) for bucket in buckets.values())
+    allocations = {key: 0 for key in buckets}
+    remainders: list[tuple[float, int, str, str, str]] = []
+
+    for key, bucket_samples in buckets.items():
+        raw_target = (len(bucket_samples) * target_size) / total_size
+        base_target = min(len(bucket_samples), int(raw_target))
+        allocations[key] = base_target
+        remainder = raw_target - base_target
+        remainders.append((remainder, len(bucket_samples), key[0], key[1], key[2]))
+
+    assigned = sum(allocations.values())
+    remainders.sort(reverse=True)
+    for _, _, source, density, ball_presence in remainders:
+        if assigned >= target_size:
+            break
+        key = (source, density, ball_presence)
+        capacity = len(buckets[key]) - allocations[key]
+        if capacity <= 0:
+            continue
+        allocations[key] += 1
+        assigned += 1
+
+    selected: list[tuple[int, LoadedSample]] = []
+    leftovers: list[tuple[int, LoadedSample]] = []
+    for key, bucket_samples in buckets.items():
+        take = allocations[key]
+        selected.extend(bucket_samples[:take])
+        leftovers.extend(bucket_samples[take:])
+
+    if len(selected) < target_size:
+        rng.shuffle(leftovers)
+        selected.extend(leftovers[: target_size - len(selected)])
+
+    return selected[:target_size]
+
+
+def _build_sampling_summary(
+    *,
+    selected: list[LoadedSample],
+    strategy: str,
+    seed: int | None,
+    max_samples: int,
+    original_count: int,
+) -> SamplingSummary:
+    source_counts = Counter(_detect_sample_source(sample) for sample in selected)
+    density_counts = Counter(_annotation_density_bucket(sample) for sample in selected)
+    ball_counts = Counter(_ball_presence_bucket(sample) for sample in selected)
+    return SamplingSummary(
+        strategy=strategy,
+        seed=seed,
+        requested_max_samples=max_samples,
+        original_sample_count=original_count,
+        selected_sample_count=len(selected),
+        source_counts=dict(sorted(source_counts.items())),
+        density_counts=dict(sorted(density_counts.items())),
+        ball_presence_counts=dict(sorted(ball_counts.items())),
+    )
+
+
+def _detect_sample_source(sample: LoadedSample) -> str:
+    file_name = sample.image_path.name.lower()
+    if file_name.startswith("ballextra_"):
+        return "ball-extra"
+    if file_name.startswith("soccernet_"):
+        return "soccernet"
+    return "unknown"
+
+
+def _annotation_density_bucket(sample: LoadedSample) -> str:
+    count = len(sample.annotations)
+    if count <= 0:
+        return "0"
+    if count == 1:
+        return "1"
+    if count <= 5:
+        return "2-5"
+    return "6+"
+
+
+def _ball_presence_bucket(sample: LoadedSample) -> str:
+    has_ball = any(annotation.category_name == "ball" for annotation in sample.annotations)
+    return "ball" if has_ball else "no-ball"
+
+
 def _validate_image_file(image_path: Path, variant_dir: Path, split: str) -> None:
     if image_path.suffix.lower() not in SUPPORTED_IMAGE_EXTENSIONS:
         _raise_loader_error(
@@ -474,6 +641,7 @@ __all__ = [
     "LoadedAnnotation",
     "LoadedSample",
     "LoadedSplit",
+    "SamplingSummary",
     "SplitSummary",
     "VariantSummary",
     "load_training_split",

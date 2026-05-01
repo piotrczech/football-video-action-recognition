@@ -80,6 +80,17 @@ python scripts/bootstrap_base_variant.py --force
 python scripts/bootstrap_base_variant.py --variant extended --force
 ```
 
+Then we can extend this dataset by additional tranforming images:
+
+```bash
+python scripts/build_ready_variants.py --force
+```
+
+(or simple just one variant)
+```bash
+python scripts/build_ready_variants.py --variant extended-transformed --force
+```
+
 Then inspect prepared data in the app:
 
 ```bash
@@ -93,19 +104,29 @@ Train a model by running
 ```bash
 python scripts/train.py --model yolo --dataset-variant base --profile quick
 python scripts/train.py --model yolo --dataset-variant base --profile full
+python scripts/train.py --model yolo --dataset-variant base --profile full --name yolo--supercomp--epochs300
 python scripts/train.py --model yolo --dataset-variant base --profile quick --no-amp
 python scripts/train.py --model yolo --dataset-variant base --profile quick --force-cpu
-python scripts/train.py --model rf --dataset-variant base
+python scripts/train.py --model rf --dataset-variant base --profile rf --name rfdetr--cluster-test
+```
+
+so for local dev, propably just
+```bash
+python scripts/train.py --model yolo --dataset-variant base --profile quick
+python scripts/train.py --model rf --dataset-variant base --profile quick
 ```
 
 Notes:
 - `yolo` uses the real Ultralytics backend by default.
-- Device is auto-selected by backend (`GPU` when available, otherwise `CPU`).
+- `rf` (`rfdetr`) uses the real Roboflow RF-DETR backend.
+- Training artifacts always use `models/checkpoints/<run_name>/` and `models/metadata/<run_name>/`.
+- If you pass `--name`, that value becomes the run name after sanitization. Without `--name`, an automatic name based on model, dataset variant, and timestamp is used.
+- Device is selected by backend/config (`GPU` when available, otherwise `CPU` where supported).
 - Use `--no-amp` to disable AMP for YOLO (recommended when debugging ROCm instability/segfaults).
-- Use `--force-cpu` to force CPU execution for YOLO regardless of profile config.
+- Use `--force-cpu` to force CPU execution regardless of profile config.
 - To force developer fallback mock for YOLO, set `MURAWA_YOLO_MOCK=1` before running scripts.
-- Static training profiles are stored in `configs/train.quick.yaml` and `configs/train.full.yaml`.
-- `rf` (`rfdetr`) still follows the current mock path until Issue #11 is implemented.
+- Static training profiles are stored in `configs/train.quick.yaml`, `configs/train.full.yaml`, and `configs/train.rf.yaml`.
+- `quick` uses deterministic representative subsampling inside the requested split (`train`/`valid`) based on the config seed; it does not take the first `N` images and never consults `test`.
 
 This creates:
 - checkpoint files in `models/checkpoints/<run_name>/`,

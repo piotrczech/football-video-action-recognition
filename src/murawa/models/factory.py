@@ -1,4 +1,4 @@
-from murawa.models.rfdetr import RfDetrAdapter, RfDetrMockModel
+from murawa.models.rfdetr import RfDetrAdapter
 from murawa.models.yolo import YoloAdapter, YoloMockModel
 
 SUPPORTED_MODELS = {"yolo", "rfdetr"}

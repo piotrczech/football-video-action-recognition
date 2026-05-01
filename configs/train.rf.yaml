@@ -2,14 +2,20 @@
 
 runtime:
   seed: 42
-
-rf_detr:
+training:
   epochs: 3
   batch_size: 2
   learning_rate: 0.0001
-  backbone: dinov2_vits14
-  patch_size: 14
-  img_size: 728
-  weights: rfdetr-m.pt
+
+rfdetr:
+  epochs: 3
+  batch_size: 2
+  grad_accum_steps: 4
+  learning_rate: 0.0001
+  resolution: 736
+  checkpoint_interval: 1
   max_train_samples: null
   max_valid_samples: null
+  detection_confidence: 0.25
+  device: cuda
+  weights: default

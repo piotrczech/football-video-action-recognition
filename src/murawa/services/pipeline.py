@@ -5,7 +5,7 @@ import cv2
 
 from murawa.data.path_resolver import IMAGE_SUFFIXES, PREDICTIONS_ROOT, VIDEO_SUFFIXES, pick_input
 from murawa.models import build_model, build_training_adapter, normalize_model_name
-from murawa.services.artifacts import CKPT_DIR, META_DIR, latest_run, write_json
+from murawa.services.artifacts import latest_run, resolve_run, write_json
 
 
 def analyze_frame(
@@ -20,23 +20,19 @@ def analyze_match(
     return _run_analysis(project_root, model, dataset_variant, mode="match", input_path=input_path)
 
 
+def analyze_frame_run(project_root: Path, run_name: str, input_path: str | None = None) -> dict:
+    return _run_analysis_for_run(project_root, run_name, mode="frame", input_path=input_path)
+
+
+def analyze_match_run(project_root: Path, run_name: str, input_path: str | None = None) -> dict:
+    return _run_analysis_for_run(project_root, run_name, mode="match", input_path=input_path)
+
+
 def _run_analysis(
     project_root: Path, model: str, dataset_variant: str, mode: str, input_path: str | None
 ) -> dict:
     normalized_model = normalize_model_name(model)
-    base_payload = {
-        "status": "error",
-        "mode": mode,
-        "model": normalized_model,
-        "dataset_variant": dataset_variant,
-        "resolved_input": "",
-        "output_dir": "",
-        "summary_path": "",
-        "preview_path": "",
-        "preview_assets": [],
-        "stats": {},
-        "detections": [],
-    }
+    base_payload = _make_base_payload(mode=mode, model=normalized_model, dataset_variant=dataset_variant)
 
     try:
         run_name = latest_run(project_root, normalized_model, dataset_variant)
@@ -48,15 +44,51 @@ def _run_analysis(
         )
         return base_payload
 
-    out_dir = project_root / PREDICTIONS_ROOT / run_name
+    return _run_analysis_for_run(
+        project_root=project_root,
+        run_name=run_name,
+        mode=mode,
+        input_path=input_path,
+        fallback_payload=base_payload,
+    )
+
+
+def _run_analysis_for_run(
+    project_root: Path,
+    run_name: str,
+    mode: str,
+    input_path: str | None,
+    fallback_payload: dict | None = None,
+) -> dict:
+    try:
+        run = resolve_run(project_root, run_name)
+    except FileNotFoundError:
+        payload = fallback_payload or _make_base_payload(mode=mode, model="", dataset_variant="")
+        payload["status"] = "missing_run"
+        payload["message"] = (
+            "Brak gotowego runu/checkpointu dla wybranego modelu. "
+            f"Nie znaleziono kompletnego runu: {run_name}"
+        )
+        return payload
+
+    normalized_model = normalize_model_name(run.model)
+    dataset_variant = run.dataset_variant
+    base_payload = _make_base_payload(
+        mode=mode,
+        model=normalized_model,
+        dataset_variant=dataset_variant,
+    )
+    base_payload["resolved_run_name"] = run.run_name
+
+    out_dir = project_root / PREDICTIONS_ROOT / run.run_name
     out_dir.mkdir(parents=True, exist_ok=True)
 
     resolved_input, input_found = _resolve_input(project_root, mode, dataset_variant, input_path)
-    checkpoint_path = (project_root / CKPT_DIR / run_name / "model.pt").resolve()
+    checkpoint_path = run.checkpoint_path
 
     # Shared flags for inference mode
     use_real_yolo = normalized_model == "yolo" and not _env_flag("MURAWA_YOLO_MOCK")
-    use_rf_detr = normalized_model in ["rfdetr", "rf_detr", "rf"]
+    use_rf_detr = normalized_model == "rfdetr"
     use_real_inference = use_real_yolo or use_rf_detr
 
     if use_real_inference and not input_found:
@@ -102,7 +134,7 @@ def _run_analysis(
 
     try:
         if use_rf_detr:
-            model_instance = build_model(normalized_model)
+            model_instance = build_training_adapter(normalized_model)
             detections = model_instance.predict(
                 input_path=resolved_path,
                 checkpoint_path=checkpoint_path,
@@ -145,9 +177,9 @@ def _run_analysis(
         "mode": mode,
         "model": normalized_model,
         "dataset_variant": dataset_variant,
-        "resolved_run_name": run_name,
+        "resolved_run_name": run.run_name,
         "checkpoint_path": str(checkpoint_path),
-        "metadata_path": str(project_root / META_DIR / run_name),
+        "metadata_path": str(run.metadata_dir),
         "resolved_input": resolved_input,
         "input_found": input_found,
         "output_dir": str(out_dir),
@@ -176,6 +208,23 @@ def _run_analysis(
         encoding="utf-8",
     )
     return payload
+
+
+def _make_base_payload(mode: str, model: str, dataset_variant: str) -> dict:
+    return {
+        "status": "error",
+        "mode": mode,
+        "model": model,
+        "dataset_variant": dataset_variant,
+        "resolved_run_name": "",
+        "resolved_input": "",
+        "output_dir": "",
+        "summary_path": "",
+        "preview_path": "",
+        "preview_assets": [],
+        "stats": {},
+        "detections": [],
+    }
 
 
 def _build_detection_stats(detections: list[dict], mode: str) -> dict:

@@ -22,6 +22,13 @@ ENV_PATH = ROOT / ".env"
 ROBOFLOW_URL = "https://universe.roboflow.com/footballvisionai/playersdetection-2-vfmys/dataset/2"
 SOCCERNET_TASK = "tracking-2023"
 ALL_SOCCERNET_SPLITS = ("train", "test", "challenge")
+SOCCERNET_ANNOTATED_SPLITS = ("train", "test")
+SOCCERNET_IMAGE_ONLY_SPLITS = ("challenge",)
+SOCCERNET_SPLIT_ALIASES = {
+    "train": ("train",),
+    "test": ("test",),
+    "challenge": ("challenge", "challenge2023"),
+}
 COCO_KEYS = {"images", "annotations", "categories"}
 
 logger = logging.getLogger("prepare_raw_data")
@@ -95,15 +102,41 @@ def has_coco_annotation(split_dir: Path) -> bool:
     return False
 
 
-def has_soccernet_tracking_split(split_dir: Path) -> bool:
+def soccernet_sequence_dirs(split_dir: Path) -> list[Path]:
     if not split_dir.is_dir():
-        return False
+        return []
 
-    sequences = [p for p in sorted(split_dir.iterdir(), key=lambda p: p.name) if p.is_dir() and p.name.startswith("SNMOT-")]
+    return [
+        p
+        for p in sorted(split_dir.iterdir(), key=lambda p: p.name)
+        if p.is_dir() and p.name.startswith("SNMOT-")
+    ]
+
+
+def has_soccernet_tracking_split(split_dir: Path) -> bool:
+    sequences = soccernet_sequence_dirs(split_dir)
     if not sequences:
         return False
 
-    return all((seq / "img1").is_dir() and (seq / "gt").is_dir() for seq in sequences)
+    return all(
+        (seq / "img1").is_dir()
+        and any((seq / "img1").glob("*.jpg"))
+        and (seq / "gt" / "gt.txt").is_file()
+        and (seq / "gt" / "gt.txt").stat().st_size > 0
+        and (seq / "gameinfo.ini").is_file()
+        for seq in sequences
+    )
+
+
+def has_soccernet_image_only_split(split_dir: Path) -> bool:
+    sequences = soccernet_sequence_dirs(split_dir)
+    if not sequences:
+        return False
+
+    return all(
+        (seq / "img1").is_dir() and any((seq / "img1").glob("*.jpg"))
+        for seq in sequences
+    )
 
 
 def safe_extract_archive(archive: Path, destination: Path) -> None:
@@ -190,6 +223,18 @@ def normalize_dataset_layout(
         if direct.is_dir():
             continue
 
+        direct_alias = next(
+            (
+                root / alias
+                for alias in aliases
+                if alias != canonical and (root / alias).is_dir()
+            ),
+            None,
+        )
+        if direct_alias is not None:
+            move_path(direct_alias, direct)
+            continue
+
         for alias in aliases:
             candidate = next(
                 (
@@ -216,7 +261,23 @@ def missing_ball_extra_splits(root: Path, required_splits: tuple[str, ...]) -> l
 
 
 def missing_soccernet_splits(root: Path, required_splits: tuple[str, ...]) -> list[str]:
-    return [split for split in required_splits if not has_soccernet_tracking_split(root / split)]
+    missing: list[str] = []
+    for split in required_splits:
+        split_dir = root / split
+        if split in SOCCERNET_ANNOTATED_SPLITS:
+            if not has_soccernet_tracking_split(split_dir):
+                missing.append(split)
+            continue
+
+        if split in SOCCERNET_IMAGE_ONLY_SPLITS:
+            if not has_soccernet_image_only_split(split_dir):
+                missing.append(split)
+            continue
+
+        if not split_dir.is_dir():
+            missing.append(split)
+
+    return missing
 
 
 def format_split_list(splits: tuple[str, ...] | list[str]) -> str:
@@ -288,8 +349,6 @@ def check_ball_extra() -> CheckResult:
 
 
 def check_soccernet(download_requested: bool, required_splits: tuple[str, ...], env_values: dict[str, str]) -> CheckResult:
-    split_aliases = {split: (split,) for split in ALL_SOCCERNET_SPLITS}
-
     if download_requested:
         password = get_soccernet_password(env_values)
         if not password:
@@ -315,9 +374,17 @@ def check_soccernet(download_requested: bool, required_splits: tuple[str, ...], 
 
     extract_error: PrepareError | None = None
     try:
-        normalize_dataset_layout(SOCCERNET_ROOT, split_aliases, allowed_containers=(SOCCERNET_TASK,))
+        normalize_dataset_layout(
+            SOCCERNET_ROOT,
+            SOCCERNET_SPLIT_ALIASES,
+            allowed_containers=(SOCCERNET_TASK,),
+        )
         extract_archives_once(SOCCERNET_ROOT)
-        normalize_dataset_layout(SOCCERNET_ROOT, split_aliases, allowed_containers=(SOCCERNET_TASK,))
+        normalize_dataset_layout(
+            SOCCERNET_ROOT,
+            SOCCERNET_SPLIT_ALIASES,
+            allowed_containers=(SOCCERNET_TASK,),
+        )
     except PrepareError as exc:
         extract_error = exc
 

@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 SPLITS = ("train", "valid", "test")
 SOCCERNET_SPLIT_ALIASES: dict[str, tuple[str, ...]] = {
     "train": ("train",),
-    "valid": ("valid", "val", "challenge"),
+    "valid": ("valid", "val"),
     "test": ("test",),
 }
 COCO_CATEGORIES = [{"id": idx, "name": name} for idx, name in CATEGORY_ID_TO_NAME.items()]
@@ -74,7 +74,7 @@ def select_soccernet_frames(config: FrameSelectionConfig) -> Path:
     if not processed_any_split:
         raise FileNotFoundError(
             f"No SoccerNet splits found under: {raw_soccernet_root}. "
-            "Expected train/valid/test or train/challenge/test layout."
+            "Expected a labeled train split and optional labeled valid/test splits."
         )
 
     (selected_dataset_root / "selection_summary.json").write_text(

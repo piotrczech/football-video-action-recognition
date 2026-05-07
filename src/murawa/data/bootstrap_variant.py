@@ -15,7 +15,7 @@ SUPPORTED_VARIANTS = ("base", "extended", "extended-only-train")
 
 SOCCERNET_SPLIT_ALIASES: dict[str, tuple[str, ...]] = {
     "train": ("train",),
-    "valid": ("valid", "val", "challenge"),
+    "valid": ("valid", "val"),
     "test": ("test",),
 }
 BALL_EXTRA_SPLIT_ALIASES: dict[str, tuple[str, ...]] = {
@@ -113,6 +113,10 @@ def build_bootstrap_variant(project_root: Path, config: BootstrapConfig) -> Boot
         split_to_samples=split_to_samples,
         frame_step=config.frame_step,
         used_fallback=used_fallback,
+        soccernet_split_strategy=describe_soccernet_split_strategy(
+            soccernet_by_split=soccernet_by_split,
+            used_train_only_fallback=used_fallback,
+        ),
         variant_composition=describe_variant_composition(config.output_variant),
     )
     return BootstrapBuildResult(
@@ -136,29 +140,65 @@ def collect_soccernet_samples_by_split(
     if train_dir is None:
         raise BootstrapError(f"Missing SoccerNet split 'train' under: {root}")
 
+    train_samples = collect_soccernet_split_samples(
+        split_root=train_dir,
+        frame_step=frame_step,
+        source_split="train",
+    )
+
     if valid_dir is not None and test_dir is not None:
+        valid_samples = collect_soccernet_split_samples(
+            split_root=valid_dir,
+            frame_step=frame_step,
+            source_split=valid_alias or "valid",
+        )
+        test_samples = collect_soccernet_split_samples(
+            split_root=test_dir,
+            frame_step=frame_step,
+            source_split=test_alias or "test",
+        )
         return {
-            "train": collect_soccernet_split_samples(split_root=train_dir, frame_step=frame_step, source_split="train"),
-            "valid": collect_soccernet_split_samples(
-                split_root=valid_dir,
-                frame_step=frame_step,
-                source_split=valid_alias or "valid",
-            ),
-            "test": collect_soccernet_split_samples(
-                split_root=test_dir,
-                frame_step=frame_step,
-                source_split=test_alias or "test",
-            ),
+            "train": train_samples,
+            "valid": valid_samples,
+            "test": test_samples,
         }, False
 
-    if valid_dir is None and test_dir is None:
-        train_samples = collect_soccernet_split_samples(split_root=train_dir, frame_step=frame_step, source_split="train")
-        return split_train_only_soccernet_samples(train_samples), True
+    if test_dir is not None:
+        test_samples = collect_soccernet_split_samples(
+            split_root=test_dir,
+            frame_step=frame_step,
+            source_split=test_alias or "test",
+        )
+        train_split, valid_split = split_train_valid_soccernet_samples(train_samples)
+        return {
+            "train": train_split,
+            "valid": valid_split,
+            "test": test_samples,
+        }, False
 
-    raise BootstrapError(
-        "Inconsistent SoccerNet layout: expected both 'valid/val/challenge' and 'test' or only 'train'. "
-        f"Resolved valid={valid_dir is not None}, test={test_dir is not None}."
-    )
+    return split_train_only_soccernet_samples(train_samples), True
+
+
+def split_train_valid_soccernet_samples(
+    train_samples: list[CandidateSample],
+) -> tuple[list[CandidateSample], list[CandidateSample]]:
+    samples = sorted(train_samples, key=lambda s: s.output_file_name)
+    total = len(samples)
+    if total < 2:
+        raise BootstrapError(
+            "SoccerNet train/test layout requires at least 2 samples in 'train' "
+            "to derive a validation split."
+        )
+
+    valid_count = int(total * 0.1)
+    if valid_count == 0:
+        valid_count = 1
+
+    train_count = total - valid_count
+    if train_count <= 0:
+        raise BootstrapError("SoccerNet train/test layout produced non-positive train split size.")
+
+    return samples[:train_count], samples[train_count:]
 
 
 def split_train_only_soccernet_samples(train_samples: list[CandidateSample]) -> dict[str, list[CandidateSample]]:
@@ -412,17 +452,20 @@ def write_summary(
     split_to_samples: dict[str, list[CandidateSample]],
     frame_step: int,
     used_fallback: bool,
+    soccernet_split_strategy: str,
     variant_composition: dict[str, list[str]],
 ) -> None:
     summary: dict[str, object] = {
         "variant": variant_dir.name,
         "frame_step": frame_step,
         "used_soccernet_train_only_fallback": used_fallback,
+        "soccernet_split_strategy": soccernet_split_strategy,
         "variant_composition": variant_composition,
         "notes": [
             "TODO(Issue #8): Extend this bootstrap with full frame selection and preprocessing pipeline.",
             "TODO(Issue #9): Keep explicit variant naming and traceability in data/ready.",
-            "Stage-2 bootstrap preserves source split boundaries and avoids mixed re-splitting.",
+            "Stage-2 bootstrap preserves the official SoccerNet test split when it is labeled.",
+            "When SoccerNet has no labeled valid split, validation is derived from train.",
         ],
         "splits": {},
     }
@@ -461,6 +504,33 @@ def describe_variant_composition(variant_name: str) -> dict[str, list[str]]:
             sources.append("ball-extra")
         composition[split] = sources
     return composition
+
+
+def describe_soccernet_split_strategy(
+    soccernet_by_split: dict[str, list[CandidateSample]],
+    used_train_only_fallback: bool,
+) -> str:
+    if used_train_only_fallback:
+        return "train_only_80_10_10"
+
+    valid_source_splits = {
+        sample.source_split
+        for sample in soccernet_by_split.get("valid", [])
+        if sample.source == "soccernet"
+    }
+    test_source_splits = {
+        sample.source_split
+        for sample in soccernet_by_split.get("test", [])
+        if sample.source == "soccernet"
+    }
+
+    if valid_source_splits == {"train"} and test_source_splits == {"test"}:
+        return "train_valid_from_train_official_test"
+
+    if valid_source_splits <= {"valid", "val"} and test_source_splits == {"test"}:
+        return "provided_train_valid_test"
+
+    return "custom"
 
 
 def parse_tracklet_classes(gameinfo_path: Path) -> dict[int, int]:

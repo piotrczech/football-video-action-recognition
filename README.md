@@ -52,6 +52,8 @@ The most important setup details are:
 - a `.env` file containing `SOCCERNET_PASSWORD` is required only when using `python scripts/prepare_raw_data.py --download-soccernet`
 - the downloaded ball-extra dataset must be extracted into `data/raw/ball-extra` (<a href="https://universe.roboflow.com/footballvisionai/playersdetection-2-vfmys/dataset/2" target="_blank" rel="noopener noreferrer">link</a>)
 - SoccerNet data can be downloaded into `data/raw/soccernet` with `python scripts/prepare_raw_data.py --download-soccernet`
+- SoccerNet `challenge`/`challenge2023` is an image-only split in the tracking release. It is
+  validated as raw input, but it is not used for supervised training because it has no labels.
 
 If everything is correct, the validation output should look like this:
 ```bash
@@ -79,6 +81,9 @@ python scripts/bootstrap_base_variant.py --force
 # build one selected variant
 python scripts/bootstrap_base_variant.py --variant extended --force
 ```
+
+When SoccerNet provides `train` and labeled `test` but no labeled `valid`, the bootstrap derives
+`valid` deterministically from `train` and keeps SoccerNet `test` as the test split.
 
 Then we can extend this dataset by additional tranforming images:
 

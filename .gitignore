@@ -43,6 +43,11 @@ wandb/
 !models/**/.gitkeep
 !outputs/**/.gitkeep
 
+# yolo-ready-base
+!models/checkpoints/yolo-ready-base/**
+!models/metadata/yolo-ready-base/**
+!models/checkpoints/yolo-ready-base/model.pt
+
 # Model and export files
 *.pt
 *.pth

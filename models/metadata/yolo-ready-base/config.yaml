@@ -1,0 +1,33 @@
+model:
+  name: yolo
+
+training:
+  epochs: 250
+  batch_size: 24
+  learning_rate: 0.0003
+
+runtime:
+  seed: 42
+
+yolo:
+  image_size: 1280
+  epochs: 250
+  batch_size: 24
+  learning_rate: 0.0003
+  max_train_samples: null
+  max_valid_samples: null
+  detection_confidence: 0.25
+  weights: yolov8l.pt
+
+rfdetr:
+  resolution: 1024
+  epochs: 100
+  batch_size: 8
+  grad_accum_steps: 4
+  learning_rate: 0.0001
+  checkpoint_interval: 10
+  max_train_samples: null
+  max_valid_samples: null
+  detection_confidence: 0.25
+  device: cuda
+  weights: default

@@ -1,32 +1,32 @@
-# Common parameters
+model:
+  name: yolo
+
 training:
-  epochs: 3
-  batch_size: 2
-  learning_rate: 0.0001
+  epochs: 250
+  batch_size: 24
+  learning_rate: 0.0003
 
 runtime:
   seed: 42
 
-# Active model config.
-model:
-  name: yolo
-
 yolo:
-  image_size: 640
-  epochs: 4
-  batch_size: 8
-  learning_rate: 0.001
+  image_size: 1280
+  epochs: 250
+  batch_size: 24
+  learning_rate: 0.0003
   max_train_samples: null
   max_valid_samples: null
   detection_confidence: 0.25
-  weights: yolov8n.pt
+  weights: yolov8l.pt
+
 rfdetr:
-  resolution: 736
-  epochs: 3
-  batch_size: 2
+  variant: large
+  resolution: 704
+  epochs: 100
+  batch_size: 16
   grad_accum_steps: 4
   learning_rate: 0.0001
-  checkpoint_interval: 1
+  checkpoint_interval: 10
   max_train_samples: null
   max_valid_samples: null
   detection_confidence: 0.25

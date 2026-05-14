@@ -112,13 +112,26 @@ python scripts/train.py --model yolo --dataset-variant base --profile full
 python scripts/train.py --model yolo --dataset-variant base --profile full --name yolo--supercomp--epochs300
 python scripts/train.py --model yolo --dataset-variant base --profile quick --no-amp
 python scripts/train.py --model yolo --dataset-variant base --profile quick --force-cpu
-python scripts/train.py --model rf --dataset-variant base --profile rf --name rfdetr--cluster-test
+python scripts/train.py --model rf --dataset-variant base --profile full --name rfdetr--base--full
 ```
 
 so for local dev, propably just
 ```bash
 python scripts/train.py --model yolo --dataset-variant base --profile quick
 python scripts/train.py --model rf --dataset-variant base --profile quick
+```
+
+On WCSS/SLURM, initialize the shared per-user venv first:
+
+```bash
+sbatch scripts/slurm/setup_env.sbatch
+```
+
+Then submit GPU training with environment overrides:
+
+```bash
+sbatch --export=ALL,MODEL=yolo,DATASET_VARIANT=base,PROFILE=full,RUN_NAME=yolo--base--full-h100-v1 scripts/slurm/train_gpu.sbatch
+sbatch --export=ALL,MODEL=rf,DATASET_VARIANT=base,PROFILE=full,RUN_NAME=rfdetr--base--full-h100-v2 scripts/slurm/train_gpu.sbatch
 ```
 
 Notes:
@@ -130,7 +143,7 @@ Notes:
 - Use `--no-amp` to disable AMP for YOLO (recommended when debugging ROCm instability/segfaults).
 - Use `--force-cpu` to force CPU execution regardless of profile config.
 - To force developer fallback mock for YOLO, set `MURAWA_YOLO_MOCK=1` before running scripts.
-- Static training profiles are stored in `configs/train.quick.yaml`, `configs/train.full.yaml`, and `configs/train.rf.yaml`.
+- Static training profiles are stored in `configs/train.quick.yaml` and `configs/train.full.yaml`.
 - `quick` uses deterministic representative subsampling inside the requested split (`train`/`valid`) based on the config seed; it does not take the first `N` images and never consults `test`.
 
 This creates:

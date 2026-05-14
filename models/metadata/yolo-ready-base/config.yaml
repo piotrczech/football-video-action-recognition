@@ -20,10 +20,9 @@ yolo:
   weights: yolov8l.pt
 
 rfdetr:
-  variant: large
-  resolution: 704
+  resolution: 1024
   epochs: 100
-  batch_size: 16
+  batch_size: 8
   grad_accum_steps: 4
   learning_rate: 0.0001
   checkpoint_interval: 10

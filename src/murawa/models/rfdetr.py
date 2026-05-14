@@ -19,6 +19,8 @@ import yaml
 from murawa.data import DataLoaderError, LoadedSplit, load_training_split
 from murawa.services.artifacts import StandardizedArtifactCallback
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class RfDetrAdapter:
@@ -46,7 +48,17 @@ class RfDetrAdapter:
         if device is not None:
             cfg["device"] = device
         _seed_everything(cfg["seed"])
-        rfdetr_cls = _import_rfdetr()
+        rfdetr_cls = _import_rfdetr(cfg["variant"])
+        logger.info(
+            "RF-DETR config: variant=%s resolution=%s batch_size=%s "
+            "grad_accum_steps=%s effective_batch_size=%s device=%s",
+            cfg["variant"],
+            cfg["resolution"],
+            cfg["batch_size"],
+            cfg["grad_accum_steps"],
+            cfg["effective_batch_size"],
+            cfg["device"],
+        )
 
         try:
             train_split = load_training_split(
@@ -98,10 +110,15 @@ class RfDetrAdapter:
         try:
             with _maybe_quiet_backend_logs(cfg["quiet"], backend_log_path) as emit_progress:
                 try:
-                    model = _build_rfdetr_model(rfdetr_cls=rfdetr_cls, weights=cfg["weights"])
+                    model = _build_rfdetr_model(
+                        rfdetr_cls=rfdetr_cls,
+                        weights=cfg["weights"],
+                        variant=cfg["variant"],
+                    )
                 except Exception as exc:
                     raise RuntimeError(
-                        f"RF-DETR backend initialization failed for weights='{cfg['weights']}': {exc}"
+                        "RF-DETR backend initialization failed for "
+                        f"variant='{cfg['variant']}', weights='{cfg['weights']}': {exc}"
                     ) from exc
 
                 if cfg["quiet"]:
@@ -155,6 +172,7 @@ class RfDetrAdapter:
             "note": note,
             "mock": False,
             "backend": self.backend,
+            "rfdetr_variant": cfg["variant"],
             "train_device": str(cfg["device"]),
             "train_amp": None,
             "train_samples": len(train_split.samples),
@@ -182,11 +200,15 @@ class RfDetrAdapter:
         if not checkpoint_path.exists() or not checkpoint_path.is_file():
             raise FileNotFoundError(f"RF-DETR checkpoint does not exist: {checkpoint_path}")
 
-        rfdetr_cls = _import_rfdetr()
+        variant = _resolve_prediction_variant(checkpoint_path=checkpoint_path)
+        rfdetr_cls = _import_rfdetr(variant)
         try:
             model = rfdetr_cls(pretrain_weights=str(checkpoint_path))
         except Exception as exc:
-            raise RuntimeError(f"RF-DETR backend failed to load checkpoint '{checkpoint_path}': {exc}") from exc
+            raise RuntimeError(
+                f"RF-DETR backend failed to load checkpoint '{checkpoint_path}' "
+                f"for variant='{variant}': {exc}"
+            ) from exc
 
         class_mapping = _load_class_mapping(checkpoint_path=checkpoint_path)
         detection_confidence = _resolve_detection_confidence(checkpoint_path=checkpoint_path)
@@ -244,7 +266,23 @@ class RfDetrAdapter:
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp"}
 VIDEO_SUFFIXES = {".mp4", ".avi", ".mov", ".mkv", ".webm"}
 METRICS_CSV_NAMES = ("metrics.csv", "results.csv")
-RFDETR_MEDIUM_RESOLUTION_BLOCK = 32
+RFDETR_RESOLUTION_BLOCK = 32
+RFDETR_DEFAULT_RESOLUTIONS = {
+    "medium": 576,
+    "large": 704,
+}
+RFDETR_VARIANT_ALIASES = {
+    "medium": "medium",
+    "rf-detr-medium": "medium",
+    "rfdetr-medium": "medium",
+    "rfdetr-m": "medium",
+    "m": "medium",
+    "large": "large",
+    "rf-detr-large": "large",
+    "rfdetr-large": "large",
+    "rfdetr-l": "large",
+    "l": "large",
+}
 BEST_CHECKPOINT_NAMES = (
     "checkpoint_best_total.pth",
     "checkpoint_best_ema.pth",
@@ -253,14 +291,24 @@ BEST_CHECKPOINT_NAMES = (
 )
 
 
-def _import_rfdetr():
+def _import_rfdetr(variant: str):
     try:
-        from rfdetr import RFDETRMedium
+        from rfdetr import RFDETRLarge, RFDETRMedium
 
-        return RFDETRMedium
+        rfdetr_classes = {
+            "medium": RFDETRMedium,
+            "large": RFDETRLarge,
+        }
+        return rfdetr_classes[variant]
     except ImportError as exc:
         raise RuntimeError(
-            "Roboflow RF-DETR backend is unavailable. Install dependencies with: pip install rfdetr"
+            "Roboflow RF-DETR backend is unavailable. "
+            'Install dependencies with: pip install "rfdetr[train]>=1.6.5"'
+        ) from exc
+    except KeyError as exc:
+        raise ValueError(
+            f"Unsupported RF-DETR variant='{variant}'. Expected one of: "
+            f"{sorted(RFDETR_DEFAULT_RESOLUTIONS)}."
         ) from exc
 
 
@@ -282,34 +330,42 @@ def _resolve_training_config(config_path: Path | None) -> dict[str, Any]:
     training_cfg = _require_mapping(payload.get("training"), key="training", config_path=cfg_path)
     runtime_cfg = _require_mapping(payload.get("runtime"), key="runtime", config_path=cfg_path)
     rfdetr_cfg = _require_mapping(payload.get("rfdetr"), key="rfdetr", config_path=cfg_path)
+    variant = _as_rfdetr_variant(rfdetr_cfg.get("variant", "medium"))
     resolution = _as_int(
-        rfdetr_cfg.get("resolution", training_cfg.get("resolution", 728)),
+        rfdetr_cfg.get(
+            "resolution",
+            training_cfg.get("resolution", RFDETR_DEFAULT_RESOLUTIONS[variant]),
+        ),
         key="resolution",
-        minimum=RFDETR_MEDIUM_RESOLUTION_BLOCK,
+        minimum=RFDETR_RESOLUTION_BLOCK,
     )
-    if resolution % RFDETR_MEDIUM_RESOLUTION_BLOCK != 0:
+    if resolution % RFDETR_RESOLUTION_BLOCK != 0:
         raise ValueError(
-            "Config value 'resolution' must be divisible by 32 for RF-DETR Medium "
+            "Config value 'resolution' must be divisible by 32 for RF-DETR "
             "(patch_size=16, num_windows=2), got: "
             f"{resolution}"
         )
+    batch_size = _as_int(
+        rfdetr_cfg.get("batch_size", training_cfg.get("batch_size", 2)),
+        key="batch_size",
+        minimum=1,
+    )
+    grad_accum_steps = _as_int(
+        rfdetr_cfg.get("grad_accum_steps", 4),
+        key="grad_accum_steps",
+        minimum=1,
+    )
 
     return {
+        "variant": variant,
         "epochs": _as_int(
             rfdetr_cfg.get("epochs", training_cfg.get("epochs", 1)),
             key="epochs",
             minimum=1,
         ),
-        "batch_size": _as_int(
-            rfdetr_cfg.get("batch_size", training_cfg.get("batch_size", 2)),
-            key="batch_size",
-            minimum=1,
-        ),
-        "grad_accum_steps": _as_int(
-            rfdetr_cfg.get("grad_accum_steps", 4),
-            key="grad_accum_steps",
-            minimum=1,
-        ),
+        "batch_size": batch_size,
+        "grad_accum_steps": grad_accum_steps,
+        "effective_batch_size": batch_size * grad_accum_steps,
         "learning_rate": _as_float(
             rfdetr_cfg.get("learning_rate", training_cfg.get("learning_rate", 0.0001)),
             key="learning_rate",
@@ -482,8 +538,20 @@ def _resolve_project_root(output_dir: Path) -> Path:
     return Path(__file__).resolve().parents[3]
 
 
-def _build_rfdetr_model(rfdetr_cls, weights: str):
-    default_weights = {"", "auto", "default", "rfdetr-m.pt", "rfdetr-medium"}
+def _build_rfdetr_model(rfdetr_cls, weights: str, variant: str):
+    default_weights = {
+        "",
+        "auto",
+        "default",
+        f"rf-detr-{variant}",
+        f"rf-detr-{variant}.pth",
+        f"rfdetr-{variant}",
+        f"rfdetr-{variant}.pth",
+    }
+    if variant == "medium":
+        default_weights.update({"rfdetr-m.pt", "rfdetr-m.pth", "rfdetr-m"})
+    if variant == "large":
+        default_weights.update({"rfdetr-l.pt", "rfdetr-l.pth", "rfdetr-l"})
     if weights.strip().lower() in default_weights:
         return rfdetr_cls()
     return rfdetr_cls(pretrain_weights=weights)
@@ -805,13 +873,33 @@ def _load_class_mapping(checkpoint_path: Path) -> dict[int, str]:
     return {int(key): str(value) for key, value in payload.items()}
 
 
+def _resolve_prediction_variant(checkpoint_path: Path) -> str:
+    rfdetr_cfg = _load_rfdetr_config_for_checkpoint(checkpoint_path)
+    return _as_rfdetr_variant(rfdetr_cfg.get("variant", "medium"))
+
+
 def _resolve_detection_confidence(checkpoint_path: Path) -> float:
     default_confidence = 0.25
+    rfdetr_cfg = _load_rfdetr_config_for_checkpoint(checkpoint_path)
+    confidence = _as_float(
+        rfdetr_cfg.get("detection_confidence", default_confidence),
+        key="detection_confidence",
+        minimum=0.0,
+    )
+    if confidence > 1.0:
+        raise ValueError(
+            "Config value 'detection_confidence' must be <= 1.0, got: "
+            f"{confidence} (run={checkpoint_path.parent.name})."
+        )
+    return confidence
+
+
+def _load_rfdetr_config_for_checkpoint(checkpoint_path: Path) -> dict[str, Any]:
     run_name = checkpoint_path.parent.name
     project_root = checkpoint_path.parents[3]
     config_path = project_root / "models" / "metadata" / run_name / "config.yaml"
     if not config_path.exists() or not config_path.is_file():
-        return default_confidence
+        return {}
 
     try:
         payload = yaml.safe_load(config_path.read_text(encoding="utf-8"))
@@ -822,16 +910,10 @@ def _resolve_detection_confidence(checkpoint_path: Path) -> float:
 
     rfdetr_cfg = payload.get("rfdetr")
     if rfdetr_cfg is None:
-        return default_confidence
+        return {}
     if not isinstance(rfdetr_cfg, dict):
         raise RuntimeError(f"Saved training config '{config_path}' has invalid 'rfdetr' section.")
-
-    confidence = _as_float(rfdetr_cfg.get("detection_confidence", default_confidence), key="detection_confidence", minimum=0.0)
-    if confidence > 1.0:
-        raise ValueError(
-            f"Config value 'detection_confidence' must be <= 1.0, got: {confidence} (run={run_name})."
-        )
-    return confidence
+    return rfdetr_cfg
 
 
 def _class_name(class_id: int, class_mapping: dict[int, str]) -> str:
@@ -912,6 +994,17 @@ def _as_bool(value: Any, *, key: str) -> bool:
         if normalized in {"0", "false", "no", "off"}:
             return False
     raise ValueError(f"Config value '{key}' must be boolean, got: {value!r}")
+
+
+def _as_rfdetr_variant(value: Any) -> str:
+    normalized = str(value).strip().lower()
+    try:
+        return RFDETR_VARIANT_ALIASES[normalized]
+    except KeyError as exc:
+        raise ValueError(
+            f"Config value 'variant' must be one of {sorted(RFDETR_DEFAULT_RESOLUTIONS)}, "
+            f"got: {value!r}"
+        ) from exc
 
 
 def _as_device(value: Any) -> str:

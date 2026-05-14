@@ -1,0 +1,38 @@
+{
+  "run_name": "rfdetr-base-full-h100-v1",
+  "model": "rfdetr",
+  "framework": "pytorch",
+  "backend": "roboflow-rfdetr",
+  "created_at_utc": "2026-05-14T06:56:22.519567+00:00",
+  "run_tag": "rfdetr-base-full-h100-v1",
+  "dataset_variant": "base",
+  "resolved_training_path": "/lustre/pd03/hpc-piotrczech-1774303727/football-video-action-recognition/data/ready/base",
+  "profile": "full",
+  "config_argument": "/home/piotrczech/piotrczech/football-video-action-recognition/configs/train.full.yaml",
+  "config_found": true,
+  "train_device": "cuda",
+  "train_amp": null,
+  "force_cpu": false,
+  "train_samples": 1283,
+  "valid_samples": 142,
+  "valid_split_source": "valid",
+  "is_mock_run": false,
+  "model_impl": "RfDetrAdapter",
+  "mock_note": "",
+  "loader_summary": {
+    "validated_split": "train",
+    "preflight_checked_images": 16,
+    "sampled_annotations": 244,
+    "total_images_in_split": 1283,
+    "total_annotations_in_split": 22051,
+    "class_mapping_source": "coco.categories",
+    "class_mapping": {
+      "0": "player",
+      "1": "goalkeeper",
+      "2": "referee",
+      "3": "ball"
+    }
+  },
+  "train_sampling_summary": {},
+  "valid_sampling_summary": {}
+}

@@ -48,6 +48,10 @@ wandb/
 !models/metadata/yolo-ready-base/**
 !models/checkpoints/yolo-ready-base/model.pt
 
+#rfdetr-ready-base
+!models/checkpoints/rfdetr-ready-base/**
+!models/metadata/rfdetr-ready-base/**
+
 # Model and export files
 *.pt
 *.pth

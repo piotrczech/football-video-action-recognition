@@ -6,11 +6,11 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 
-TRANSFORM_PIPELINE_NAME = "lightweight_color_scale_noise"
+TRANSFORM_PIPELINE_NAME = "boosted_color_scale_noise"
 TRANSFORM_PIPELINE_OPS = (
-    "light brightness/contrast/saturation shift",
-    "downscale-upscale resolution simulation",
-    "gaussian noise",
+    "stronger brightness/contrast/saturation shift",
+    "stronger downscale-upscale resolution degradation",
+    "stronger gaussian noise",
 )
 
 
@@ -25,18 +25,28 @@ class TransformMetadata:
 
 
 def apply_lightweight_training_transform(image: np.ndarray, key: str) -> tuple[np.ndarray, TransformMetadata]:
+    """Apply deterministic train-only visual degradation.
+
+    The transform is intentionally stronger than the first version, so that
+    the transformed images are visibly different during review and presentation,
+    while still preserving image geometry and COCO bbox coordinates.
+    """
     digest = hashlib.sha256(key.encode("utf-8")).digest()
 
-    brightness_beta = _pick_int(digest[0:2], low=-10, high=10)
-    contrast_alpha = 1.0 + (_pick_int(digest[2:4], low=-8, high=8) / 100.0)
-    saturation_scale = 1.0 + (_pick_int(digest[4:6], low=-10, high=10) / 100.0)
-    downscale_factor = 0.75 + ((int.from_bytes(digest[6:8], "big") % 16) / 100.0)
-    gaussian_sigma = 4.0 + float(int.from_bytes(digest[8:10], "big") % 5)
+    brightness_beta = _pick_int(digest[0:2], low=-35, high=35)
+    contrast_alpha = _pick_float(digest[2:4], low=0.70, high=1.40)
+    saturation_scale = _pick_float(digest[4:6], low=0.55, high=1.55)
+    downscale_factor = _pick_float(digest[6:8], low=0.45, high=0.65)
+    gaussian_sigma = _pick_float(digest[8:10], low=12.0, high=22.0)
 
     transformed = _apply_brightness_contrast(image, alpha=contrast_alpha, beta=brightness_beta)
     transformed = _apply_saturation_shift(transformed, saturation_scale=saturation_scale)
     transformed = _apply_downscale_upscale(transformed, factor=downscale_factor)
-    transformed = _apply_gaussian_noise(transformed, sigma=gaussian_sigma, seed=int.from_bytes(digest[10:18], "big"))
+    transformed = _apply_gaussian_noise(
+        transformed,
+        sigma=gaussian_sigma,
+        seed=int.from_bytes(digest[10:18], "big"),
+    )
 
     metadata = TransformMetadata(
         pipeline=TRANSFORM_PIPELINE_NAME,
@@ -54,8 +64,14 @@ def _pick_int(raw: bytes, *, low: int, high: int) -> int:
     return low + (int.from_bytes(raw, "big") % span)
 
 
+def _pick_float(raw: bytes, *, low: float, high: float) -> float:
+    value = int.from_bytes(raw, "big") / 65535.0
+    return low + value * (high - low)
+
+
 def _apply_brightness_contrast(image: np.ndarray, *, alpha: float, beta: int) -> np.ndarray:
-    return cv2.convertScaleAbs(image, alpha=alpha, beta=beta)
+    adjusted = image.astype(np.float32) * alpha + beta
+    return np.clip(adjusted, 0, 255).astype(np.uint8)
 
 
 def _apply_saturation_shift(image: np.ndarray, *, saturation_scale: float) -> np.ndarray:

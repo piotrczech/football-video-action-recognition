@@ -1,12 +1,14 @@
-import os
 from pathlib import Path
 
 import cv2
+import numpy as np
 
 from murawa.data.path_resolver import IMAGE_SUFFIXES, PREDICTIONS_ROOT, VIDEO_SUFFIXES, pick_input
-from murawa.models import build_model, build_training_adapter, normalize_model_name
+from murawa.models import build_training_adapter, normalize_model_name
 from murawa.services.artifacts import latest_run, resolve_run, write_json
-from murawa.vision.team_assignment import assign_teams_to_frame, team_color_bgr
+from murawa.vision.team_assignment import assign_teams_to_frame
+from murawa.vision.team_assignment_helpers import read_bbox_xyxy, team_preview_color_bgr
+
 
 def analyze_frame(
     project_root: Path, model: str, dataset_variant: str, input_path: str | None = None
@@ -86,12 +88,7 @@ def _run_analysis_for_run(
     resolved_input, input_found = _resolve_input(project_root, mode, dataset_variant, input_path)
     checkpoint_path = run.checkpoint_path
 
-    # Shared flags for inference mode
-    use_real_yolo = normalized_model == "yolo" and not _env_flag("MURAWA_YOLO_MOCK")
-    use_rf_detr = normalized_model == "rfdetr"
-    use_real_inference = use_real_yolo or use_rf_detr
-
-    if use_real_inference and not input_found:
+    if not input_found:
         expected = "image" if mode == "frame" else "video"
         base_payload["status"] = "error"
         base_payload["resolved_input"] = resolved_input
@@ -102,55 +99,51 @@ def _run_analysis_for_run(
         return base_payload
 
     resolved_path = Path(resolved_input) if resolved_input else None
-    
-    if use_real_inference:
-        if resolved_path is None or not resolved_path.exists() or not resolved_path.is_file():
-            base_payload["status"] = "error"
-            base_payload["resolved_input"] = resolved_input
-            base_payload["message"] = (
-                f"Input path for {normalized_model} backend must point to a file. "
-                f"Received: {resolved_input}"
-            )
-            return base_payload
 
-        suffix = resolved_path.suffix.lower()
-        if mode == "frame" and suffix not in IMAGE_SUFFIXES:
-            base_payload["status"] = "error"
-            base_payload["resolved_input"] = resolved_input
-            base_payload["message"] = (
-                f"Frame mode requires an image file. Received suffix='{suffix}', "
-                f"expected one of {sorted(IMAGE_SUFFIXES)}."
-            )
-            return base_payload
+    if resolved_path is None or not resolved_path.exists() or not resolved_path.is_file():
+        base_payload["status"] = "error"
+        base_payload["resolved_input"] = resolved_input
+        base_payload["message"] = (
+            f"Input path for {normalized_model} backend must point to a file. "
+            f"Received: {resolved_input}"
+        )
+        return base_payload
 
-        if mode == "match" and suffix not in VIDEO_SUFFIXES:
+    suffix = resolved_path.suffix.lower()
+    if mode == "frame" and suffix not in IMAGE_SUFFIXES:
+        base_payload["status"] = "error"
+        base_payload["resolved_input"] = resolved_input
+        base_payload["message"] = (
+            f"Frame mode requires an image file. Received suffix='{suffix}', "
+            f"expected one of {sorted(IMAGE_SUFFIXES)}."
+        )
+        return base_payload
+
+    if mode == "match" and suffix not in VIDEO_SUFFIXES:
+        base_payload["status"] = "error"
+        base_payload["resolved_input"] = resolved_input
+        base_payload["message"] = (
+            f"Match mode requires a video file. Received suffix='{suffix}', "
+            f"expected one of {sorted(VIDEO_SUFFIXES)}."
+        )
+        return base_payload
+
+    frame_image_bgr = None
+    if mode == "frame":
+        frame_image_bgr = cv2.imread(str(resolved_path), cv2.IMREAD_COLOR)
+        if frame_image_bgr is None:
             base_payload["status"] = "error"
             base_payload["resolved_input"] = resolved_input
-            base_payload["message"] = (
-                f"Match mode requires a video file. Received suffix='{suffix}', "
-                f"expected one of {sorted(VIDEO_SUFFIXES)}."
-            )
+            base_payload["message"] = f"Could not read frame image: {resolved_input}"
             return base_payload
 
     try:
-        if use_rf_detr:
-            model_instance = build_training_adapter(normalized_model)
-            detections = model_instance.predict(
-                input_path=resolved_path,
-                checkpoint_path=checkpoint_path,
-                mode=mode
-            )
-            is_mock = False
-        elif use_real_yolo:
-            detections = build_training_adapter(normalized_model).predict(
-                input_path=resolved_path,
-                checkpoint_path=checkpoint_path,
-                mode=mode,
-            )
-            is_mock = False
-        else:
-            detections = build_model(normalized_model).predict(mode)
-            is_mock = True
+        model_instance = build_training_adapter(normalized_model)
+        detections = model_instance.predict(
+            input_path=resolved_path,
+            checkpoint_path=checkpoint_path,
+            mode=mode,
+        )
     except Exception as exc:
         base_payload["status"] = "error"
         base_payload["resolved_input"] = resolved_input
@@ -166,9 +159,9 @@ def _run_analysis_for_run(
     }
     minimap_entities: list[dict] = []
 
-    if mode == "frame" and use_real_inference and resolved_path is not None:
+    if mode == "frame" and frame_image_bgr is not None:
         assignment_result = assign_teams_to_frame(
-            image_path=resolved_path,
+            image_bgr=frame_image_bgr,
             detections=detections,
         )
         detections = assignment_result.detections
@@ -177,18 +170,17 @@ def _run_analysis_for_run(
 
     stats = _build_detection_stats(detections=detections, mode=mode)
     preview_assets: list[str] = []
-    
-    if use_real_inference and resolved_path is not None:
-        preview_assets = _write_preview_assets(
-            input_path=resolved_path,
-            detections=detections,
-            mode=mode,
-            out_dir=out_dir,
-        )
+
+    preview_assets = _write_preview_assets(
+        input_path=resolved_path,
+        detections=detections,
+        mode=mode,
+        out_dir=out_dir,
+        frame_image_bgr=frame_image_bgr.copy() if frame_image_bgr is not None else None,
+    )
 
     payload = {
         "status": "ok",
-        "mock": is_mock,
         "mode": mode,
         "model": normalized_model,
         "dataset_variant": dataset_variant,
@@ -218,7 +210,7 @@ def _run_analysis_for_run(
                 f"detections={stats.get('total_detections', 0)}",
                 f"classes={stats.get('classes', {})}",
                 f"preview_assets={len(preview_assets)}",
-                "Mock prediction output placeholder." if is_mock else "Real adapter output.",
+                "Real adapter output.",
                 "",
             ]
         ),
@@ -284,13 +276,20 @@ def _write_preview_assets(
     detections: list[dict],
     mode: str,
     out_dir: Path,
+    frame_image_bgr: np.ndarray | None = None,
 ) -> list[str]:
     preview_dir = out_dir / "preview"
     preview_dir.mkdir(parents=True, exist_ok=True)
 
     try:
         if mode == "frame":
-            return _write_frame_preview(input_path=input_path, detections=detections, preview_dir=preview_dir)
+            if frame_image_bgr is None:
+                return []
+            return _write_frame_preview(
+                frame_image_bgr=frame_image_bgr,
+                detections=detections,
+                preview_dir=preview_dir,
+            )
         if mode == "match":
             return _write_match_preview(input_path=input_path, detections=detections, preview_dir=preview_dir)
     except Exception:
@@ -299,34 +298,30 @@ def _write_preview_assets(
     return []
 
 
-def _write_frame_preview(input_path: Path, detections: list[dict], preview_dir: Path) -> list[str]:
-    image = cv2.imread(str(input_path))
-    if image is None:
-        return []
-
+def _write_frame_preview(
+    frame_image_bgr: np.ndarray,
+    detections: list[dict],
+    preview_dir: Path,
+) -> list[str]:
     for detection in detections:
-        bbox = detection.get("bbox_xyxy")
-        if not isinstance(bbox, list) or len(bbox) != 4:
+        bbox = read_bbox_xyxy(detection)
+        if bbox is None:
             continue
 
-        try:
-            x1, y1, x2, y2 = [int(v) for v in bbox]
-        except (TypeError, ValueError):
-            continue
-
+        x1, y1, x2, y2 = bbox
         class_name = str(detection.get("class", "unknown"))
         confidence = detection.get("confidence")
         confidence_text = f" {float(confidence):.2f}" if isinstance(confidence, (int, float)) else ""
 
-        team = str(detection.get("team", "not_applicable"))
-        color = team_color_bgr(team)
+        team = str(detection.get("team", "unknown"))
+        color = team_preview_color_bgr(team)
         label = f"{class_name}{confidence_text}"
-        if team not in {"not_applicable", "unknown"}:
+        if team != "unknown":
             label = f"{label} {team}"
 
-        cv2.rectangle(image, (x1, y1), (x2, y2), color, 2)
+        cv2.rectangle(frame_image_bgr, (x1, y1), (x2, y2), color, 2)
         cv2.putText(
-            image,
+            frame_image_bgr,
             label,
             (x1, max(15, y1 - 6)),
             cv2.FONT_HERSHEY_SIMPLEX,
@@ -336,7 +331,7 @@ def _write_frame_preview(input_path: Path, detections: list[dict], preview_dir: 
         )
 
     cv2.putText(
-        image,
+        frame_image_bgr,
         f"detections={len(detections)}",
         (10, 22),
         cv2.FONT_HERSHEY_SIMPLEX,
@@ -346,7 +341,7 @@ def _write_frame_preview(input_path: Path, detections: list[dict], preview_dir: 
     )
 
     preview_path = preview_dir / "frame_preview.jpg"
-    if not cv2.imwrite(str(preview_path), image):
+    if not cv2.imwrite(str(preview_path), frame_image_bgr):
         return []
 
     return [str(preview_path)]
@@ -406,12 +401,6 @@ def _write_match_preview(input_path: Path, detections: list[dict], preview_dir: 
         cap.release()
 
     return assets
-
-
-def _env_flag(name: str) -> bool:
-    value = os.environ.get(name, "")
-    return value.strip().lower() in {"1", "true", "yes", "on"}
-
 
 def _resolve_input(
     project_root: Path, mode: str, dataset_variant: str, input_path: str | None

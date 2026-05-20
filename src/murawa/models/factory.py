@@ -1,5 +1,5 @@
 from murawa.models.rfdetr import RfDetrAdapter
-from murawa.models.yolo import YoloAdapter, YoloMockModel
+from murawa.models.yolo import YoloAdapter
 
 SUPPORTED_MODELS = {"yolo", "rfdetr"}
 
@@ -13,15 +13,7 @@ def normalize_model_name(model: str) -> str:
     return normalized
 
 
-def build_model(model: str):
-    normalized = normalize_model_name(model)
-    if normalized == "yolo":
-        return YoloMockModel()
-    return RfDetrAdapter()
-
-
 def build_training_adapter(model: str):
-    """Issue #10/#11: return non-mock adapter contract for real training integration."""
     normalized = normalize_model_name(model)
     if normalized == "yolo":
         return YoloAdapter()

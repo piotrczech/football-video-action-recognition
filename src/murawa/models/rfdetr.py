@@ -14,6 +14,7 @@ from typing import Any
 import warnings
 
 import cv2
+import numpy as np
 import yaml
 
 from murawa.data import DataLoaderError, LoadedSplit, load_training_split
@@ -170,7 +171,6 @@ class RfDetrAdapter:
             },
             "metrics": metrics,
             "note": note,
-            "mock": False,
             "backend": self.backend,
             "rfdetr_variant": cfg["variant"],
             "train_device": str(cfg["device"]),
@@ -217,7 +217,8 @@ class RfDetrAdapter:
                 raise ValueError(
                     f"Frame mode requires an image file. Received suffix='{input_path.suffix}'."
                 )
-            detections = _predict_image(model=model, image=str(input_path), threshold=detection_confidence)
+            frame_rgb = _read_frame_image_rgb(input_path)
+            detections = _predict_image(model=model, image=frame_rgb, threshold=detection_confidence)
             return _convert_detections_to_frame_schema(detections, class_mapping)
 
         if input_path.suffix.lower() not in VIDEO_SUFFIXES:
@@ -790,6 +791,13 @@ def _predict_image(model, image: Any, threshold: float):
             raise RuntimeError(f"RF-DETR returned {len(detections)} detection batches for one input.")
         return detections[0]
     return detections
+
+
+def _read_frame_image_rgb(input_path: Path) -> np.ndarray:
+    image_bgr = cv2.imread(str(input_path), cv2.IMREAD_COLOR)
+    if image_bgr is None:
+        raise RuntimeError(f"Could not read frame image for RF-DETR prediction: {input_path}")
+    return cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
 
 
 def _convert_detections_to_frame_schema(detections: Any, class_mapping: dict[int, str]) -> list[dict]:

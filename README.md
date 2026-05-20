@@ -142,7 +142,6 @@ Notes:
 - Device is selected by backend/config (`GPU` when available, otherwise `CPU` where supported).
 - Use `--no-amp` to disable AMP for YOLO (recommended when debugging ROCm instability/segfaults).
 - Use `--force-cpu` to force CPU execution regardless of profile config.
-- To force developer fallback mock for YOLO, set `MURAWA_YOLO_MOCK=1` before running scripts.
 - Static training profiles are stored in `configs/train.quick.yaml` and `configs/train.full.yaml`.
 - `quick` uses deterministic representative subsampling inside the requested split (`train`/`valid`) based on the config seed; it does not take the first `N` images and never consults `test`.
 

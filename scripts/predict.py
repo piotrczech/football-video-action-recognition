@@ -53,6 +53,7 @@ def main() -> int:
     logger.info("output=%s", result["output_dir"])
     logger.info("detections=%s", result.get("stats", {}).get("total_detections", 0))
     logger.info("preview_assets=%s", len(result.get("preview_assets", [])))
+    logger.info("debug_preview_assets=%s", len(result.get("debug_preview_assets", [])))
 
     print(
         json.dumps(
@@ -64,6 +65,7 @@ def main() -> int:
                 "resolved_input": result["resolved_input"],
                 "summary_path": result["summary_path"],
                 "preview_assets": result.get("preview_assets", []),
+                "debug_preview_assets": result.get("debug_preview_assets", []),
                 "stats": result.get("stats", {}),
             },
             indent=2,

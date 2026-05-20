@@ -47,7 +47,7 @@ def save_upload(uploaded_file) -> str | None:
         return tmp.name
 
 
-def show_result(result: dict) -> None:
+def show_result(result: dict, show_debug_assets: bool = False) -> None:
     if result["status"] == "missing_run":
         st.info(result["message"])
         return
@@ -68,3 +68,12 @@ def show_result(result: dict) -> None:
         preview_file = Path(asset)
         if preview_file.exists():
             st.image(str(preview_file), caption=preview_file.name, use_container_width=True)
+
+    if not show_debug_assets:
+        return
+
+    debug_assets = result.get("debug_preview_assets", [])
+    for asset in debug_assets[:3]:
+        debug_file = Path(asset)
+        if debug_file.exists():
+            st.image(str(debug_file), caption=debug_file.name, use_container_width=True)

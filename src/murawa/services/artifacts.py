@@ -56,7 +56,7 @@ def save_config(src: Path, dst: Path, model: str, dataset_variant: str) -> bool:
     dst.write_text(
         "\n".join(
             [
-                "# Auto-generated fallback config for MVP mock",
+                "# Auto-generated fallback config",
                 f"model: {model}",
                 f"dataset_variant: {dataset_variant}",
                 "epochs: 1",

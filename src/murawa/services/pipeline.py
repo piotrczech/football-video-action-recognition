@@ -6,7 +6,7 @@ import cv2
 from murawa.data.path_resolver import IMAGE_SUFFIXES, PREDICTIONS_ROOT, VIDEO_SUFFIXES, pick_input
 from murawa.models import build_model, build_training_adapter, normalize_model_name
 from murawa.services.artifacts import latest_run, resolve_run, write_json
-
+from murawa.vision.team_assignment import assign_teams_to_frame, team_color_bgr
 
 def analyze_frame(
     project_root: Path, model: str, dataset_variant: str, input_path: str | None = None
@@ -160,6 +160,21 @@ def _run_analysis_for_run(
     summary_path = out_dir / "prediction_summary.json"
     preview_path = out_dir / f"{mode}_prediction.txt"
 
+    team_assignment = {
+        "enabled": False,
+        "reason": "Team assignment is available only for frame image inputs in this MVP.",
+    }
+    minimap_entities: list[dict] = []
+
+    if mode == "frame" and use_real_inference and resolved_path is not None:
+        assignment_result = assign_teams_to_frame(
+            image_path=resolved_path,
+            detections=detections,
+        )
+        detections = assignment_result.detections
+        team_assignment = assignment_result.summary
+        minimap_entities = assignment_result.minimap_entities
+
     stats = _build_detection_stats(detections=detections, mode=mode)
     preview_assets: list[str] = []
     
@@ -187,6 +202,8 @@ def _run_analysis_for_run(
         "preview_path": str(preview_path),
         "preview_assets": preview_assets,
         "stats": stats,
+        "team_assignment": team_assignment,
+        "minimap_entities": minimap_entities,
         "detections": detections,
     }
     write_json(summary_path, payload)
@@ -301,14 +318,20 @@ def _write_frame_preview(input_path: Path, detections: list[dict], preview_dir: 
         confidence = detection.get("confidence")
         confidence_text = f" {float(confidence):.2f}" if isinstance(confidence, (int, float)) else ""
 
-        cv2.rectangle(image, (x1, y1), (x2, y2), (0, 220, 255), 2)
+        team = str(detection.get("team", "not_applicable"))
+        color = team_color_bgr(team)
+        label = f"{class_name}{confidence_text}"
+        if team not in {"not_applicable", "unknown"}:
+            label = f"{label} {team}"
+
+        cv2.rectangle(image, (x1, y1), (x2, y2), color, 2)
         cv2.putText(
             image,
-            f"{class_name}{confidence_text}",
+            label,
             (x1, max(15, y1 - 6)),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.5,
-            (0, 220, 255),
+            color,
             2,
         )
 

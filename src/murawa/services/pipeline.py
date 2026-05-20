@@ -6,8 +6,13 @@ import numpy as np
 from murawa.data.path_resolver import IMAGE_SUFFIXES, PREDICTIONS_ROOT, VIDEO_SUFFIXES, pick_input
 from murawa.models import build_training_adapter, normalize_model_name
 from murawa.services.artifacts import latest_run, resolve_run, write_json
-from murawa.vision.team_assignment import assign_teams_to_frame
-from murawa.vision.team_assignment_helpers import read_bbox_xyxy, team_preview_color_bgr
+from murawa.vision.team_assignment import PLAYER_CLASSES, REFEREE_CLASSES, assign_teams_to_frame
+from murawa.vision.team_assignment_helpers import (
+    crop_jersey_region,
+    normalize_class_name,
+    read_bbox_xyxy,
+    team_preview_color_bgr,
+)
 
 
 def analyze_frame(
@@ -170,14 +175,22 @@ def _run_analysis_for_run(
 
     stats = _build_detection_stats(detections=detections, mode=mode)
     preview_assets: list[str] = []
+    debug_preview_assets: list[str] = []
 
     preview_assets = _write_preview_assets(
         input_path=resolved_path,
         detections=detections,
         mode=mode,
         out_dir=out_dir,
+        team_assignment=team_assignment,
         frame_image_bgr=frame_image_bgr.copy() if frame_image_bgr is not None else None,
     )
+    if mode == "frame" and frame_image_bgr is not None:
+        debug_preview_assets = _write_team_assignment_debug_preview(
+            frame_image_bgr=frame_image_bgr,
+            detections=detections,
+            out_dir=out_dir,
+        )
 
     payload = {
         "status": "ok",
@@ -193,6 +206,7 @@ def _run_analysis_for_run(
         "summary_path": str(summary_path),
         "preview_path": str(preview_path),
         "preview_assets": preview_assets,
+        "debug_preview_assets": debug_preview_assets,
         "stats": stats,
         "team_assignment": team_assignment,
         "minimap_entities": minimap_entities,
@@ -210,6 +224,7 @@ def _run_analysis_for_run(
                 f"detections={stats.get('total_detections', 0)}",
                 f"classes={stats.get('classes', {})}",
                 f"preview_assets={len(preview_assets)}",
+                f"debug_preview_assets={len(debug_preview_assets)}",
                 "Real adapter output.",
                 "",
             ]
@@ -231,6 +246,7 @@ def _make_base_payload(mode: str, model: str, dataset_variant: str) -> dict:
         "summary_path": "",
         "preview_path": "",
         "preview_assets": [],
+        "debug_preview_assets": [],
         "stats": {},
         "detections": [],
     }
@@ -276,6 +292,7 @@ def _write_preview_assets(
     detections: list[dict],
     mode: str,
     out_dir: Path,
+    team_assignment: dict | None = None,
     frame_image_bgr: np.ndarray | None = None,
 ) -> list[str]:
     preview_dir = out_dir / "preview"
@@ -289,6 +306,7 @@ def _write_preview_assets(
                 frame_image_bgr=frame_image_bgr,
                 detections=detections,
                 preview_dir=preview_dir,
+                team_assignment=team_assignment or {},
             )
         if mode == "match":
             return _write_match_preview(input_path=input_path, detections=detections, preview_dir=preview_dir)
@@ -302,6 +320,7 @@ def _write_frame_preview(
     frame_image_bgr: np.ndarray,
     detections: list[dict],
     preview_dir: Path,
+    team_assignment: dict,
 ) -> list[str]:
     for detection in detections:
         bbox = read_bbox_xyxy(detection)
@@ -330,10 +349,16 @@ def _write_frame_preview(
             2,
         )
 
+    legend_bottom = _draw_team_legend(
+        image_bgr=frame_image_bgr,
+        team_counts=team_assignment.get("team_counts", {}),
+        team_colors_bgr=team_assignment.get("team_colors_bgr", {}),
+    )
+
     cv2.putText(
         frame_image_bgr,
         f"detections={len(detections)}",
-        (10, 22),
+        (10, legend_bottom + 24),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.6,
         (255, 255, 255),
@@ -345,6 +370,179 @@ def _write_frame_preview(
         return []
 
     return [str(preview_path)]
+
+
+def _draw_team_legend(
+    image_bgr: np.ndarray,
+    team_counts: object,
+    team_colors_bgr: object,
+) -> int:
+    counts = team_counts if isinstance(team_counts, dict) else {}
+    team_colors = team_colors_bgr if isinstance(team_colors_bgr, dict) else {}
+    teams = ["team_a", "team_b", "referee"]
+
+    x = 10
+    y = 10
+    row_height = 24
+    width = 170
+    height = 12 + row_height * len(teams)
+    bottom = y + height
+
+    overlay = image_bgr.copy()
+    cv2.rectangle(overlay, (x, y), (x + width, bottom), (0, 0, 0), -1)
+    cv2.addWeighted(overlay, 0.55, image_bgr, 0.45, 0, image_bgr)
+
+    for row_idx, team in enumerate(teams):
+        row_y = y + 22 + row_idx * row_height
+        swatch_color = _legend_color_bgr(team, team_colors)
+        cv2.rectangle(image_bgr, (x + 10, row_y - 13), (x + 26, row_y + 3), swatch_color, -1)
+        cv2.rectangle(image_bgr, (x + 10, row_y - 13), (x + 26, row_y + 3), (255, 255, 255), 1)
+        label = f"{team} {int(counts.get(team, 0))}"
+        cv2.putText(
+            image_bgr,
+            label,
+            (x + 34, row_y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.52,
+            (255, 255, 255),
+            1,
+        )
+
+    return bottom
+
+
+def _legend_color_bgr(team: str, team_colors_bgr: dict) -> tuple[int, int, int]:
+    color = team_colors_bgr.get(team)
+    if isinstance(color, list) and len(color) == 3:
+        try:
+            return tuple(int(value) for value in color)
+        except (TypeError, ValueError):
+            pass
+    return team_preview_color_bgr(team)
+
+
+def _write_team_assignment_debug_preview(
+    frame_image_bgr: np.ndarray,
+    detections: list[dict],
+    out_dir: Path,
+) -> list[str]:
+    preview_dir = out_dir / "preview"
+    preview_dir.mkdir(parents=True, exist_ok=True)
+
+    debug_image = _build_team_assignment_crop_sheet(frame_image_bgr, detections)
+    debug_path = preview_dir / "team_assignment_crops.jpg"
+    if not cv2.imwrite(str(debug_path), debug_image):
+        return []
+    return [str(debug_path)]
+
+
+def _build_team_assignment_crop_sheet(frame_image_bgr: np.ndarray, detections: list[dict]) -> np.ndarray:
+    tile_width = 170
+    tile_height = 116
+    crop_size = 64
+    columns = 4
+    padding = 10
+
+    debug_items = _team_assignment_debug_items(frame_image_bgr, detections)
+    if not debug_items:
+        image = np.full((90, 380, 3), 32, dtype=np.uint8)
+        cv2.putText(
+            image,
+            "no team assignment crops",
+            (16, 50),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.65,
+            (240, 240, 240),
+            2,
+        )
+        return image
+
+    rows = int(np.ceil(len(debug_items) / columns))
+    sheet_height = padding + rows * tile_height
+    sheet_width = padding + columns * tile_width
+    sheet = np.full((sheet_height, sheet_width, 3), 32, dtype=np.uint8)
+
+    for idx, item in enumerate(debug_items):
+        col = idx % columns
+        row = idx // columns
+        x = padding + col * tile_width
+        y = padding + row * tile_height
+
+        cv2.rectangle(sheet, (x, y), (x + tile_width - 8, y + tile_height - 8), (58, 58, 58), -1)
+        crop = cv2.resize(item["crop"], (crop_size, crop_size), interpolation=cv2.INTER_AREA)
+        sheet[y + 8 : y + 8 + crop_size, x + 8 : x + 8 + crop_size] = crop
+
+        label = item["team"]
+        confidence = item.get("team_confidence")
+        if isinstance(confidence, (int, float)):
+            label = f"{label} {float(confidence):.2f}"
+        cv2.putText(
+            sheet,
+            label,
+            (x + 8, y + 88),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.48,
+            (245, 245, 245),
+            1,
+        )
+        cv2.putText(
+            sheet,
+            item["class_name"],
+            (x + 8, y + 106),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.42,
+            (190, 190, 190),
+            1,
+        )
+
+        jersey_color = item.get("jersey_color_bgr")
+        if jersey_color is not None:
+            cv2.rectangle(sheet, (x + 82, y + 12), (x + 126, y + 38), jersey_color, -1)
+            cv2.rectangle(sheet, (x + 82, y + 12), (x + 126, y + 38), (255, 255, 255), 1)
+
+    return sheet
+
+
+def _team_assignment_debug_items(
+    frame_image_bgr: np.ndarray,
+    detections: list[dict],
+) -> list[dict]:
+    items: list[dict] = []
+
+    for det in detections:
+        class_name = normalize_class_name(det.get("class"))
+        if class_name not in PLAYER_CLASSES and class_name not in REFEREE_CLASSES:
+            continue
+
+        bbox = read_bbox_xyxy(det)
+        if bbox is None:
+            continue
+
+        crop = crop_jersey_region(frame_image_bgr, bbox)
+        if crop.size == 0:
+            continue
+
+        jersey_color = _read_color_bgr(det.get("jersey_color_bgr"))
+        items.append(
+            {
+                "class_name": class_name,
+                "team": str(det.get("team", "unknown")),
+                "team_confidence": det.get("team_confidence"),
+                "jersey_color_bgr": jersey_color,
+                "crop": crop,
+            }
+        )
+
+    return items
+
+
+def _read_color_bgr(value: object) -> tuple[int, int, int] | None:
+    if not isinstance(value, list) or len(value) != 3:
+        return None
+    try:
+        return tuple(int(channel) for channel in value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _write_match_preview(input_path: Path, detections: list[dict], preview_dir: Path) -> list[str]:
@@ -401,6 +599,7 @@ def _write_match_preview(input_path: Path, detections: list[dict], preview_dir: 
         cap.release()
 
     return assets
+
 
 def _resolve_input(
     project_root: Path, mode: str, dataset_variant: str, input_path: str | None

@@ -23,14 +23,22 @@ def render() -> None:
     uploaded = st.file_uploader(
         "Wgraj klatkę (opcjonalnie)", type=["jpg", "jpeg", "png", "bmp"], key="frame_upload"
     )
+    show_team_debug = st.checkbox(
+        "Wyświetl podgląd rozpoznawania drużyn",
+        value=False,
+        key="frame_show_team_debug",
+    )
 
     if st.button("Uruchom analizę klatki", key="run_frame"):
-        result = analyze_frame_run(
+        st.session_state["frame_last_result"] = analyze_frame_run(
             project_root=ROOT,
             run_name=selected_run.run_name,
             input_path=save_upload(uploaded),
         )
-        show_result(result)
+
+    result = st.session_state.get("frame_last_result")
+    if isinstance(result, dict):
+        show_result(result, show_debug_assets=show_team_debug)
 
 
 if __name__ == "__main__":

@@ -98,6 +98,7 @@ def assign_teams_to_frame(
             "min_player_confidence": MIN_PLAYER_CONFIDENCE,
         },
         "team_counts": _count_player_teams(enriched),
+        "team_colors_bgr": _summarize_team_colors(enriched),
         "minimap_entities": len(minimap_entities),
         "notes": [
             "Team assignment is heuristic and based on jersey color crops.",
@@ -157,6 +158,32 @@ def _count_player_teams(detections: list[dict[str, Any]]) -> dict[str, int]:
         team_counts[str(det.get("team", "unknown"))] += 1
 
     return dict(sorted(team_counts.items()))
+
+
+def _summarize_team_colors(detections: list[dict[str, Any]]) -> dict[str, list[int]]:
+    colors_by_team: dict[str, list[list[int]]] = {"team_a": [], "team_b": []}
+
+    for det in detections:
+        team = det.get("team")
+        jersey_color = det.get("jersey_color_bgr")
+        if team not in colors_by_team:
+            continue
+        if not isinstance(jersey_color, list) or len(jersey_color) != 3:
+            continue
+
+        try:
+            colors_by_team[str(team)].append([int(value) for value in jersey_color])
+        except (TypeError, ValueError):
+            continue
+
+    team_colors: dict[str, list[int]] = {}
+    for team, colors in colors_by_team.items():
+        if not colors:
+            continue
+        median_color = np.median(np.array(colors, dtype=np.uint8), axis=0)
+        team_colors[team] = [int(round(float(value))) for value in median_color.tolist()]
+
+    return team_colors
 
 
 def _build_minimap_entities(detections: list[dict[str, Any]]) -> list[dict[str, Any]]:

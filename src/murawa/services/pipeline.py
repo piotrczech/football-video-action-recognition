@@ -18,7 +18,12 @@ from murawa.services.video_processing import (
     validate_sample_fps,
     validate_video_input,
 )
-from murawa.vision.team_assignment import assign_teams_to_frame, count_player_teams
+from murawa.vision.team_assignment import (
+    PLAYER_CLASSES,
+    REFEREE_CLASSES,
+    assign_teams_to_frame,
+    count_player_teams,
+)
 from murawa.vision.team_assignment_helpers import (
     crop_jersey_region,
     normalize_class_name,

@@ -1,4 +1,7 @@
+from datetime import datetime, timezone
 from pathlib import Path
+from tempfile import TemporaryDirectory
+from uuid import uuid4
 
 import cv2
 import numpy as np
@@ -6,7 +9,16 @@ import numpy as np
 from murawa.data.path_resolver import IMAGE_SUFFIXES, PREDICTIONS_ROOT, VIDEO_SUFFIXES, pick_input
 from murawa.models import build_training_adapter, normalize_model_name
 from murawa.services.artifacts import latest_run, resolve_run, write_json
-from murawa.vision.team_assignment import PLAYER_CLASSES, REFEREE_CLASSES, assign_teams_to_frame
+from murawa.services.video_processing import (
+    DEFAULT_SAMPLE_FPS,
+    ProgressCallback,
+    SampledFrame,
+    VideoProcessingError,
+    extract_sampled_frames,
+    validate_sample_fps,
+    validate_video_input,
+)
+from murawa.vision.team_assignment import assign_teams_to_frame, count_player_teams
 from murawa.vision.team_assignment_helpers import (
     crop_jersey_region,
     normalize_class_name,
@@ -22,21 +34,53 @@ def analyze_frame(
 
 
 def analyze_match(
-    project_root: Path, model: str, dataset_variant: str, input_path: str | None = None
+    project_root: Path,
+    model: str,
+    dataset_variant: str,
+    input_path: str | None = None,
+    sample_fps: int = DEFAULT_SAMPLE_FPS,
+    progress_callback: ProgressCallback | None = None,
 ) -> dict:
-    return _run_analysis(project_root, model, dataset_variant, mode="match", input_path=input_path)
+    return _run_analysis(
+        project_root,
+        model,
+        dataset_variant,
+        mode="match",
+        input_path=input_path,
+        sample_fps=sample_fps,
+        progress_callback=progress_callback,
+    )
 
 
 def analyze_frame_run(project_root: Path, run_name: str, input_path: str | None = None) -> dict:
     return _run_analysis_for_run(project_root, run_name, mode="frame", input_path=input_path)
 
 
-def analyze_match_run(project_root: Path, run_name: str, input_path: str | None = None) -> dict:
-    return _run_analysis_for_run(project_root, run_name, mode="match", input_path=input_path)
+def analyze_match_run(
+    project_root: Path,
+    run_name: str,
+    input_path: str | None = None,
+    sample_fps: int = DEFAULT_SAMPLE_FPS,
+    progress_callback: ProgressCallback | None = None,
+) -> dict:
+    return _run_analysis_for_run(
+        project_root,
+        run_name,
+        mode="match",
+        input_path=input_path,
+        sample_fps=sample_fps,
+        progress_callback=progress_callback,
+    )
 
 
 def _run_analysis(
-    project_root: Path, model: str, dataset_variant: str, mode: str, input_path: str | None
+    project_root: Path,
+    model: str,
+    dataset_variant: str,
+    mode: str,
+    input_path: str | None,
+    sample_fps: int = DEFAULT_SAMPLE_FPS,
+    progress_callback: ProgressCallback | None = None,
 ) -> dict:
     normalized_model = normalize_model_name(model)
     base_payload = _make_base_payload(mode=mode, model=normalized_model, dataset_variant=dataset_variant)
@@ -56,6 +100,8 @@ def _run_analysis(
         run_name=run_name,
         mode=mode,
         input_path=input_path,
+        sample_fps=sample_fps,
+        progress_callback=progress_callback,
         fallback_payload=base_payload,
     )
 
@@ -65,6 +111,8 @@ def _run_analysis_for_run(
     run_name: str,
     mode: str,
     input_path: str | None,
+    sample_fps: int = DEFAULT_SAMPLE_FPS,
+    progress_callback: ProgressCallback | None = None,
     fallback_payload: dict | None = None,
 ) -> dict:
     try:
@@ -87,6 +135,18 @@ def _run_analysis_for_run(
     )
     base_payload["resolved_run_name"] = run.run_name
 
+    if mode == "match":
+        return _run_match_video_analysis(
+            project_root=project_root,
+            run=run,
+            normalized_model=normalized_model,
+            dataset_variant=dataset_variant,
+            input_path=input_path,
+            sample_fps=sample_fps,
+            progress_callback=progress_callback,
+            base_payload=base_payload,
+        )
+
     out_dir = project_root / PREDICTIONS_ROOT / run.run_name
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -94,11 +154,10 @@ def _run_analysis_for_run(
     checkpoint_path = run.checkpoint_path
 
     if not input_found:
-        expected = "image" if mode == "frame" else "video"
         base_payload["status"] = "error"
         base_payload["resolved_input"] = resolved_input
         base_payload["message"] = (
-            f"Could not find a valid input file ({expected}) for {normalized_model}. "
+            f"Could not find a valid image input file for {normalized_model}. "
             "Provide --input-path or ensure the file exists in the test directory."
         )
         return base_payload
@@ -115,7 +174,7 @@ def _run_analysis_for_run(
         return base_payload
 
     suffix = resolved_path.suffix.lower()
-    if mode == "frame" and suffix not in IMAGE_SUFFIXES:
+    if suffix not in IMAGE_SUFFIXES:
         base_payload["status"] = "error"
         base_payload["resolved_input"] = resolved_input
         base_payload["message"] = (
@@ -124,30 +183,19 @@ def _run_analysis_for_run(
         )
         return base_payload
 
-    if mode == "match" and suffix not in VIDEO_SUFFIXES:
+    frame_image_bgr = cv2.imread(str(resolved_path), cv2.IMREAD_COLOR)
+    if frame_image_bgr is None:
         base_payload["status"] = "error"
         base_payload["resolved_input"] = resolved_input
-        base_payload["message"] = (
-            f"Match mode requires a video file. Received suffix='{suffix}', "
-            f"expected one of {sorted(VIDEO_SUFFIXES)}."
-        )
+        base_payload["message"] = f"Could not read frame image: {resolved_input}"
         return base_payload
-
-    frame_image_bgr = None
-    if mode == "frame":
-        frame_image_bgr = cv2.imread(str(resolved_path), cv2.IMREAD_COLOR)
-        if frame_image_bgr is None:
-            base_payload["status"] = "error"
-            base_payload["resolved_input"] = resolved_input
-            base_payload["message"] = f"Could not read frame image: {resolved_input}"
-            return base_payload
 
     try:
         model_instance = build_training_adapter(normalized_model)
         detections = model_instance.predict(
             input_path=resolved_path,
             checkpoint_path=checkpoint_path,
-            mode=mode,
+            mode="frame",
         )
     except Exception as exc:
         base_payload["status"] = "error"
@@ -158,39 +206,27 @@ def _run_analysis_for_run(
     summary_path = out_dir / "prediction_summary.json"
     preview_path = out_dir / f"{mode}_prediction.txt"
 
-    team_assignment = {
-        "enabled": False,
-        "reason": "Team assignment is available only for frame image inputs in this MVP.",
-    }
-    minimap_entities: list[dict] = []
+    assignment_result = assign_teams_to_frame(
+        image_bgr=frame_image_bgr,
+        detections=detections,
+    )
+    detections = assignment_result.detections
+    team_assignment = assignment_result.summary
+    minimap_entities = assignment_result.minimap_entities
 
-    if mode == "frame" and frame_image_bgr is not None:
-        assignment_result = assign_teams_to_frame(
-            image_bgr=frame_image_bgr,
-            detections=detections,
-        )
-        detections = assignment_result.detections
-        team_assignment = assignment_result.summary
-        minimap_entities = assignment_result.minimap_entities
-
-    stats = _build_detection_stats(detections=detections, mode=mode)
-    preview_assets: list[str] = []
-    debug_preview_assets: list[str] = []
+    stats = _build_detection_stats(detections=detections)
 
     preview_assets = _write_preview_assets(
-        input_path=resolved_path,
         detections=detections,
-        mode=mode,
         out_dir=out_dir,
         team_assignment=team_assignment,
-        frame_image_bgr=frame_image_bgr.copy() if frame_image_bgr is not None else None,
+        frame_image_bgr=frame_image_bgr.copy(),
     )
-    if mode == "frame" and frame_image_bgr is not None:
-        debug_preview_assets = _write_team_assignment_debug_preview(
-            frame_image_bgr=frame_image_bgr,
-            detections=detections,
-            out_dir=out_dir,
-        )
+    debug_preview_assets = _write_team_assignment_debug_preview(
+        frame_image_bgr=frame_image_bgr,
+        detections=detections,
+        out_dir=out_dir,
+    )
 
     payload = {
         "status": "ok",
@@ -234,6 +270,276 @@ def _run_analysis_for_run(
     return payload
 
 
+def _run_match_video_analysis(
+    *,
+    project_root: Path,
+    run,
+    normalized_model: str,
+    dataset_variant: str,
+    input_path: str | None,
+    sample_fps: int,
+    progress_callback: ProgressCallback | None,
+    base_payload: dict,
+) -> dict:
+    base_payload["sample_fps"] = sample_fps
+    resolved_input, input_found = _resolve_input(project_root, "match", dataset_variant, input_path)
+    base_payload["resolved_input"] = resolved_input
+    base_payload["input_found"] = input_found
+
+    if not input_found:
+        base_payload["status"] = "error"
+        base_payload["message"] = (
+            "Could not find a valid video input. Upload a video file or pass --input-path."
+        )
+        return base_payload
+
+    resolved_path = Path(resolved_input)
+    try:
+        parsed_sample_fps = validate_sample_fps(sample_fps)
+        _emit_progress(
+            progress_callback,
+            "validate",
+            0.0,
+            "Validating video input.",
+        )
+        metadata = validate_video_input(resolved_path, allowed_suffixes=VIDEO_SUFFIXES)
+        _emit_progress(
+            progress_callback,
+            "validate",
+            1.0,
+            "Video input is ready.",
+        )
+    except VideoProcessingError as exc:
+        base_payload["status"] = "error"
+        base_payload["message"] = str(exc)
+        return base_payload
+
+    analysis_id = _make_match_analysis_id()
+    out_dir = project_root / PREDICTIONS_ROOT / run.run_name / analysis_id
+    videos_dir = project_root / "outputs" / "videos"
+    summary_path = out_dir / "prediction_summary.json"
+    preview_path = out_dir / "match_prediction.txt"
+    video_path = videos_dir / f"{analysis_id}.webm"
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    videos_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        with TemporaryDirectory(prefix="murawa-match-") as temp_dir:
+            sampled_frames = extract_sampled_frames(
+                resolved_path,
+                output_dir=Path(temp_dir) / "frames",
+                metadata=metadata,
+                sample_fps=parsed_sample_fps,
+                progress_callback=progress_callback,
+            )
+
+            model_instance = build_training_adapter(normalized_model)
+            frame_batches = model_instance.predict_frames(
+                frame_paths=[frame.path for frame in sampled_frames],
+                checkpoint_path=run.checkpoint_path,
+                progress_callback=lambda completed, total: _emit_inference_progress(
+                    progress_callback=progress_callback,
+                    completed=completed,
+                    total=total,
+                ),
+            )
+            if len(frame_batches) != len(sampled_frames):
+                raise RuntimeError(
+                    "Prediction backend returned a different number of frame batches "
+                    f"({len(frame_batches)}) than sampled frames ({len(sampled_frames)})."
+                )
+
+            detections = _write_annotated_match_video(
+                video_path=video_path,
+                sampled_frames=sampled_frames,
+                frame_batches=frame_batches,
+                sample_fps=parsed_sample_fps,
+                progress_callback=progress_callback,
+            )
+    except Exception as exc:
+        video_path.unlink(missing_ok=True)
+        base_payload["status"] = "error"
+        base_payload["output_dir"] = str(out_dir)
+        base_payload["video_path"] = str(video_path)
+        base_payload["message"] = f"Match video analysis failed: {exc}"
+        return base_payload
+
+    stats = _build_detection_stats(detections=detections)
+    stats["sampled_frames"] = len(sampled_frames)
+    stats["team_counts"] = count_player_teams(detections)
+
+    payload = {
+        "status": "ok",
+        "mode": "match",
+        "model": normalized_model,
+        "dataset_variant": dataset_variant,
+        "resolved_run_name": run.run_name,
+        "analysis_id": analysis_id,
+        "checkpoint_path": str(run.checkpoint_path),
+        "metadata_path": str(run.metadata_dir),
+        "resolved_input": resolved_input,
+        "input_found": input_found,
+        "output_dir": str(out_dir),
+        "summary_path": str(summary_path),
+        "preview_path": str(preview_path),
+        "preview_assets": [],
+        "debug_preview_assets": [],
+        "video_path": str(video_path),
+        "video_metadata": metadata.as_dict(),
+        "sample_fps": parsed_sample_fps,
+        "sampled_frames": len(sampled_frames),
+        "sampled_frame_timeline": [_sampled_frame_timeline_item(frame) for frame in sampled_frames],
+        "stats": stats,
+        "team_assignment": {
+            "enabled": True,
+            "method": "jersey_color_kmeans_mvp_per_sampled_frame",
+            "team_counts": stats["team_counts"],
+        },
+        "minimap_entities": [],
+        "detections": detections,
+    }
+    write_json(summary_path, payload)
+    preview_path.write_text(
+        "\n".join(
+            [
+                "mode=match",
+                f"model={normalized_model}",
+                f"dataset_variant={dataset_variant}",
+                f"resolved_input={resolved_input}",
+                f"sample_fps={parsed_sample_fps}",
+                f"sampled_frames={len(sampled_frames)}",
+                f"detections={stats.get('total_detections', 0)}",
+                f"video_path={video_path}",
+                "Sampled-frame video analysis output.",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    _emit_progress(
+        progress_callback,
+        "save",
+        1.0,
+        "Saved video analysis output.",
+    )
+    return payload
+
+
+def _write_annotated_match_video(
+    *,
+    video_path: Path,
+    sampled_frames: list[SampledFrame],
+    frame_batches: list[list[dict]],
+    sample_fps: int,
+    progress_callback: ProgressCallback | None,
+) -> list[dict]:
+    writer = None
+    frame_size: tuple[int, int] | None = None
+    all_detections: list[dict] = []
+
+    try:
+        for render_index, (sampled_frame, frame_detections) in enumerate(
+            zip(sampled_frames, frame_batches, strict=True),
+            start=1,
+        ):
+            frame_image_bgr = cv2.imread(str(sampled_frame.path), cv2.IMREAD_COLOR)
+            if frame_image_bgr is None:
+                raise RuntimeError(f"Could not read sampled frame: {sampled_frame.path}")
+
+            height, width = frame_image_bgr.shape[:2]
+            if writer is None:
+                frame_size = (width, height)
+                writer = cv2.VideoWriter(
+                    str(video_path),
+                    cv2.VideoWriter_fourcc(*"VP80"),
+                    float(sample_fps),
+                    frame_size,
+                )
+                if not writer.isOpened():
+                    raise RuntimeError(f"Could not create output video: {video_path}")
+            elif frame_size is not None and frame_size != (width, height):
+                frame_image_bgr = cv2.resize(frame_image_bgr, frame_size)
+
+            timeline_detections = [
+                _add_sample_timeline(detection, sampled_frame) for detection in frame_detections
+            ]
+            assignment_result = assign_teams_to_frame(
+                image_bgr=frame_image_bgr,
+                detections=timeline_detections,
+            )
+            _draw_frame_overlay(
+                frame_image_bgr=frame_image_bgr,
+                detections=assignment_result.detections,
+                team_assignment=assignment_result.summary,
+                status_text=(
+                    f"t={sampled_frame.timestamp_seconds:.2f}s "
+                    f"source_frame={sampled_frame.source_frame_index}"
+                ),
+            )
+            writer.write(frame_image_bgr)
+            all_detections.extend(assignment_result.detections)
+            _emit_progress(
+                progress_callback,
+                "render",
+                render_index / max(1, len(sampled_frames)),
+                f"Rendering output video ({render_index}/{len(sampled_frames)} frames).",
+            )
+    finally:
+        if writer is not None:
+            writer.release()
+
+    if not video_path.exists() or video_path.stat().st_size <= 0:
+        raise RuntimeError(f"Output video was not written: {video_path}")
+    return all_detections
+
+
+def _add_sample_timeline(detection: dict, sampled_frame: SampledFrame) -> dict:
+    enriched = dict(detection)
+    enriched["sample_index"] = sampled_frame.sample_index
+    enriched["frame_index"] = sampled_frame.source_frame_index
+    enriched["timestamp_seconds"] = round(sampled_frame.timestamp_seconds, 4)
+    return enriched
+
+
+def _sampled_frame_timeline_item(sampled_frame: SampledFrame) -> dict:
+    return {
+        "sample_index": sampled_frame.sample_index,
+        "source_frame_index": sampled_frame.source_frame_index,
+        "timestamp_seconds": round(sampled_frame.timestamp_seconds, 4),
+    }
+
+
+def _make_match_analysis_id() -> str:
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    return f"match_{timestamp}_{uuid4().hex[:8]}"
+
+
+def _emit_inference_progress(
+    *,
+    progress_callback: ProgressCallback | None,
+    completed: int,
+    total: int,
+) -> None:
+    _emit_progress(
+        progress_callback,
+        "inference",
+        completed / max(1, total),
+        f"Running model inference ({completed}/{total} frames).",
+    )
+
+
+def _emit_progress(
+    progress_callback: ProgressCallback | None,
+    stage: str,
+    progress: float,
+    message: str,
+) -> None:
+    if progress_callback is None:
+        return
+    progress_callback(stage, min(1.0, max(0.0, progress)), message)
+
+
 def _make_base_payload(mode: str, model: str, dataset_variant: str) -> dict:
     return {
         "status": "error",
@@ -247,12 +553,18 @@ def _make_base_payload(mode: str, model: str, dataset_variant: str) -> dict:
         "preview_path": "",
         "preview_assets": [],
         "debug_preview_assets": [],
+        "video_path": "",
+        "video_metadata": {},
+        "sample_fps": DEFAULT_SAMPLE_FPS,
+        "sampled_frames": 0,
         "stats": {},
+        "team_assignment": {},
+        "minimap_entities": [],
         "detections": [],
     }
 
 
-def _build_detection_stats(detections: list[dict], mode: str) -> dict:
+def _build_detection_stats(detections: list[dict]) -> dict:
     by_class: dict[str, int] = {}
     confidences: list[float] = []
 
@@ -264,56 +576,31 @@ def _build_detection_stats(detections: list[dict], mode: str) -> dict:
         if isinstance(confidence, (int, float)):
             confidences.append(float(confidence))
 
-    stats = {
+    return {
         "total_detections": len(detections),
         "classes": by_class,
         "mean_confidence": (sum(confidences) / len(confidences)) if confidences else 0.0,
     }
 
-    if mode == "match":
-        frame_indexes = {
-            int(detection["frame_index"])
-            for detection in detections
-            if isinstance(detection.get("frame_index"), int)
-        }
-        track_ids = {
-            int(detection["track_id"])
-            for detection in detections
-            if isinstance(detection.get("track_id"), int)
-        }
-        stats["frames_with_detections"] = len(frame_indexes)
-        stats["unique_track_ids"] = len(track_ids)
-
-    return stats
-
 
 def _write_preview_assets(
-    input_path: Path,
     detections: list[dict],
-    mode: str,
     out_dir: Path,
-    team_assignment: dict | None = None,
-    frame_image_bgr: np.ndarray | None = None,
+    team_assignment: dict,
+    frame_image_bgr: np.ndarray,
 ) -> list[str]:
     preview_dir = out_dir / "preview"
     preview_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        if mode == "frame":
-            if frame_image_bgr is None:
-                return []
-            return _write_frame_preview(
-                frame_image_bgr=frame_image_bgr,
-                detections=detections,
-                preview_dir=preview_dir,
-                team_assignment=team_assignment or {},
-            )
-        if mode == "match":
-            return _write_match_preview(input_path=input_path, detections=detections, preview_dir=preview_dir)
+        return _write_frame_preview(
+            frame_image_bgr=frame_image_bgr,
+            detections=detections,
+            preview_dir=preview_dir,
+            team_assignment=team_assignment,
+        )
     except Exception:
         return []
-
-    return []
 
 
 def _write_frame_preview(
@@ -322,6 +609,26 @@ def _write_frame_preview(
     preview_dir: Path,
     team_assignment: dict,
 ) -> list[str]:
+    _draw_frame_overlay(
+        frame_image_bgr=frame_image_bgr,
+        detections=detections,
+        team_assignment=team_assignment,
+    )
+
+    preview_path = preview_dir / "frame_preview.jpg"
+    if not cv2.imwrite(str(preview_path), frame_image_bgr):
+        return []
+
+    return [str(preview_path)]
+
+
+def _draw_frame_overlay(
+    *,
+    frame_image_bgr: np.ndarray,
+    detections: list[dict],
+    team_assignment: dict,
+    status_text: str = "",
+) -> None:
     for detection in detections:
         bbox = read_bbox_xyxy(detection)
         if bbox is None:
@@ -365,11 +672,17 @@ def _write_frame_preview(
         2,
     )
 
-    preview_path = preview_dir / "frame_preview.jpg"
-    if not cv2.imwrite(str(preview_path), frame_image_bgr):
-        return []
-
-    return [str(preview_path)]
+    if status_text:
+        image_height = frame_image_bgr.shape[0]
+        cv2.putText(
+            frame_image_bgr,
+            status_text,
+            (10, max(28, image_height - 14)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.55,
+            (255, 255, 255),
+            2,
+        )
 
 
 def _draw_team_legend(
@@ -543,62 +856,6 @@ def _read_color_bgr(value: object) -> tuple[int, int, int] | None:
         return tuple(int(channel) for channel in value)
     except (TypeError, ValueError):
         return None
-
-
-def _write_match_preview(input_path: Path, detections: list[dict], preview_dir: Path) -> list[str]:
-    suffix = input_path.suffix.lower()
-    if suffix not in VIDEO_SUFFIXES:
-        return []
-
-    frame_counts: dict[int, int] = {}
-    for detection in detections:
-        frame_index = detection.get("frame_index")
-        if isinstance(frame_index, int):
-            frame_counts[frame_index] = frame_counts.get(frame_index, 0) + 1
-
-    target_frames = sorted(frame_counts.keys())[:3]
-    if not target_frames:
-        target_frames = [0]
-
-    cap = cv2.VideoCapture(str(input_path))
-    if not cap.isOpened():
-        return []
-
-    assets: list[str] = []
-    wanted = set(target_frames)
-    max_frame = max(target_frames)
-    frame_index = -1
-
-    try:
-        while wanted:
-            ok, frame = cap.read()
-            if not ok:
-                break
-
-            frame_index += 1
-            if frame_index not in wanted:
-                if frame_index > max_frame:
-                    break
-                continue
-
-            count = frame_counts.get(frame_index, 0)
-            cv2.putText(
-                frame,
-                f"frame={frame_index} detections={count}",
-                (10, 22),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
-                (255, 255, 255),
-                2,
-            )
-            out_path = preview_dir / f"match_preview_{frame_index:06d}.jpg"
-            if cv2.imwrite(str(out_path), frame):
-                assets.append(str(out_path))
-            wanted.remove(frame_index)
-    finally:
-        cap.release()
-
-    return assets
 
 
 def _resolve_input(

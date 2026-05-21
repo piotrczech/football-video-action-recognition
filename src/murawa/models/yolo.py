@@ -1,14 +1,13 @@
-from dataclasses import dataclass
 import csv
+from collections.abc import Callable
+from dataclasses import dataclass
 import importlib
 import importlib.util
-import math
 from pathlib import Path
 import random
 import shutil
 from typing import Any
 
-import cv2
 import yaml
 
 from murawa.data import DataLoaderError, LoadedSplit, load_training_split
@@ -159,14 +158,23 @@ class YoloAdapter:
         checkpoint_path: Path,
         mode: str,
     ) -> list[dict]:
-        supported_modes = {"frame", "match"}
-        if mode not in supported_modes:
-            raise ValueError(f"Unsupported mode='{mode}'. Expected one of: {sorted(supported_modes)}.")
+        if mode != "frame":
+            raise ValueError("YoloAdapter.predict supports only mode='frame'.")
 
-        input_path = input_path.resolve()
+        frame_batches = self.predict_frames(
+            frame_paths=[input_path],
+            checkpoint_path=checkpoint_path,
+        )
+        return frame_batches[0]
+
+    def predict_frames(
+        self,
+        frame_paths: list[Path],
+        *,
+        checkpoint_path: Path,
+        progress_callback: Callable[[int, int], None] | None = None,
+    ) -> list[list[dict]]:
         checkpoint_path = checkpoint_path.resolve()
-        if not input_path.exists() or not input_path.is_file():
-            raise FileNotFoundError(f"Prediction input does not exist: {input_path}")
         if not checkpoint_path.exists() or not checkpoint_path.is_file():
             raise FileNotFoundError(f"YOLO checkpoint does not exist: {checkpoint_path}")
 
@@ -174,76 +182,42 @@ class YoloAdapter:
         try:
             model = yolo_cls(str(checkpoint_path))
         except Exception as exc:
-            raise RuntimeError(f"YOLO backend failed to load checkpoint '{checkpoint_path}': {exc}") from exc
+            raise RuntimeError(
+                f"YOLO backend failed to load checkpoint '{checkpoint_path}': {exc}"
+            ) from exc
 
         detection_confidence = _resolve_detection_confidence(checkpoint_path=checkpoint_path)
+        frame_batches: list[list[dict]] = []
+        total_frames = len(frame_paths)
 
-        if mode == "frame":
+        for frame_number, frame_path in enumerate(frame_paths, start=1):
+            resolved_frame = frame_path.resolve()
+            if resolved_frame.suffix.lower() not in IMAGE_SUFFIXES:
+                raise ValueError(
+                    f"YOLO sampled frame requires an image file. Received: {resolved_frame}"
+                )
+            if not resolved_frame.exists() or not resolved_frame.is_file():
+                raise FileNotFoundError(f"YOLO sampled frame does not exist: {resolved_frame}")
+
             try:
                 results = model.predict(
-                    source=str(input_path),
+                    source=str(resolved_frame),
                     conf=detection_confidence,
                     verbose=False,
                 )
             except Exception as exc:
-                raise RuntimeError(f"YOLO frame prediction failed: {exc}") from exc
-            return _convert_results_to_frame_schema(results)
+                raise RuntimeError(
+                    f"YOLO sampled-frame prediction failed for '{resolved_frame.name}': {exc}"
+                ) from exc
 
-        # match mode (MVP): frame-by-frame inference with lightweight deterministic track ids.
-        if input_path.suffix.lower() in IMAGE_SUFFIXES:
-            try:
-                results = model.predict(
-                    source=str(input_path),
-                    conf=detection_confidence,
-                    verbose=False,
-                )
-            except Exception as exc:
-                raise RuntimeError(f"YOLO match prediction failed for image input: {exc}") from exc
-            frame_detections = _extract_frame_detections(results)
-            return _to_match_schema(frame_batches=[(0, frame_detections)], max_distance_px=55.0)
+            frame_batches.append(_convert_results_to_frame_schema(results))
+            if progress_callback is not None:
+                progress_callback(frame_number, total_frames)
 
-        if input_path.suffix.lower() not in VIDEO_SUFFIXES:
-            raise ValueError(
-                f"Unsupported file suffix '{input_path.suffix}' for mode='match'. "
-                f"Expected image ({sorted(IMAGE_SUFFIXES)}) or video ({sorted(VIDEO_SUFFIXES)})."
-            )
-
-        cap = cv2.VideoCapture(str(input_path))
-        if not cap.isOpened():
-            raise RuntimeError(f"Could not open video input for YOLO prediction: {input_path}")
-
-        frame_step = 5
-        frame_index = -1
-        frame_batches: list[tuple[int, list[dict]]] = []
-        try:
-            while True:
-                ok, frame = cap.read()
-                if not ok:
-                    break
-                frame_index += 1
-                if frame_index % frame_step != 0:
-                    continue
-                try:
-                    batch_results = model.predict(
-                        source=frame,
-                        conf=detection_confidence,
-                        verbose=False,
-                    )
-                except Exception as exc:
-                    raise RuntimeError(
-                        f"YOLO match prediction failed at frame_index={frame_index}: {exc}"
-                    ) from exc
-
-                detections = _extract_frame_detections(batch_results)
-                frame_batches.append((frame_index, detections))
-        finally:
-            cap.release()
-
-        return _to_match_schema(frame_batches=frame_batches, max_distance_px=55.0)
+        return frame_batches
 
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp"}
-VIDEO_SUFFIXES = {".mp4", ".avi", ".mov", ".mkv", ".webm"}
 TRAIN_LOSS_COLUMNS = ("train/box_loss", "train/cls_loss", "train/dfl_loss")
 VAL_LOSS_COLUMNS = ("val/box_loss", "val/cls_loss", "val/dfl_loss")
 MAP50_COLUMNS = ("metrics/mAP50(B)", "metrics/mAP50-95(B)")
@@ -524,53 +498,6 @@ def _extract_frame_detections(results: Any) -> list[dict]:
                 }
             )
     return payload
-
-
-def _to_match_schema(frame_batches: list[tuple[int, list[dict]]], max_distance_px: float) -> list[dict]:
-    active_tracks: dict[str, list[tuple[int, tuple[float, float]]]] = {}
-    next_track_id = 1
-    output: list[dict] = []
-
-    for frame_index, detections in frame_batches:
-        new_tracks: dict[str, list[tuple[int, tuple[float, float]]]] = {}
-        used_track_ids: set[int] = set()
-
-        for det in detections:
-            x1, y1, x2, y2 = det["bbox_xyxy"]
-            center = ((x1 + x2) / 2.0, (y1 + y2) / 2.0)
-            class_name = det["class"]
-
-            assigned_track_id = None
-            candidates = active_tracks.get(class_name, [])
-            best_distance = None
-            for track_id, previous_center in candidates:
-                if track_id in used_track_ids:
-                    continue
-                distance = math.dist(center, previous_center)
-                if distance > max_distance_px:
-                    continue
-                if best_distance is None or distance < best_distance:
-                    best_distance = distance
-                    assigned_track_id = track_id
-
-            if assigned_track_id is None:
-                assigned_track_id = next_track_id
-                next_track_id += 1
-
-            used_track_ids.add(assigned_track_id)
-            new_tracks.setdefault(class_name, []).append((assigned_track_id, center))
-            output.append(
-                {
-                    "frame_index": frame_index,
-                    "class": class_name,
-                    "confidence": float(det["confidence"]),
-                    "track_id": assigned_track_id,
-                }
-            )
-
-        active_tracks = new_tracks
-
-    return output
 
 
 def _import_ultralytics_yolo():

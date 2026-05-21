@@ -63,7 +63,7 @@ def render() -> None:
         with cols[idx % 2]:
             st.caption(sample.image_path.name)
             fig = _render_sample_preview(sample)
-            st.pyplot(fig, use_container_width=True)
+            st.pyplot(fig, width="stretch")
             plt.close(fig)
 
 

@@ -90,7 +90,7 @@ def show_result(result: dict, show_debug_assets: bool = False) -> None:
     for asset in preview_assets[:3]:
         preview_file = Path(asset)
         if preview_file.exists():
-            st.image(str(preview_file), caption=preview_file.name, width=PREVIEW_MEDIA_WIDTH)
+            _show_preview_image(preview_file)
 
     if not show_debug_assets:
         return
@@ -99,4 +99,13 @@ def show_result(result: dict, show_debug_assets: bool = False) -> None:
     for asset in debug_assets[:3]:
         debug_file = Path(asset)
         if debug_file.exists():
-            st.image(str(debug_file), caption=debug_file.name, width=PREVIEW_MEDIA_WIDTH)
+            _show_preview_image(debug_file)
+
+
+def _show_preview_image(preview_file: Path) -> None:
+    with st.container(width=PREVIEW_MEDIA_WIDTH):
+        st.image(
+            str(preview_file),
+            caption=preview_file.name,
+            width="stretch",
+        )

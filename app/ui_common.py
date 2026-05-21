@@ -1,12 +1,14 @@
+from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from datetime import datetime
 
 import streamlit as st
 
 from murawa.services.artifacts import TrainedRunRecord, list_available_runs
 
 ROOT = Path(__file__).resolve().parents[1]
+PREVIEW_MEDIA_WIDTH = 960
 
 
 def dataset_variants() -> list[str]:
@@ -37,14 +39,35 @@ def format_run_label(run: TrainedRunRecord) -> str:
     return f"{run.model} | {run.dataset_variant} | {created_at}"
 
 
-def save_upload(uploaded_file) -> str | None:
+@contextmanager
+def temporary_upload_path(uploaded_file):
     if uploaded_file is None:
-        return None
+        yield None
+        return
 
     suffix = Path(uploaded_file.name).suffix or ".bin"
     with NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         tmp.write(uploaded_file.getbuffer())
-        return tmp.name
+        path = tmp.name
+
+    try:
+        yield path
+    finally:
+        Path(path).unlink(missing_ok=True)
+
+
+def show_counts(title: str, counts: object, key_label: str) -> None:
+    st.markdown(f"**{title}**")
+    if not isinstance(counts, dict) or not counts:
+        st.caption("Brak danych.")
+        return
+    st.table([{key_label: key, "Liczba": value} for key, value in sorted(counts.items())])
+
+
+def video_mime_type(video_path: Path) -> str:
+    if video_path.suffix.lower() == ".webm":
+        return "video/webm"
+    return "video/mp4"
 
 
 def show_result(result: dict, show_debug_assets: bool = False) -> None:
@@ -67,7 +90,7 @@ def show_result(result: dict, show_debug_assets: bool = False) -> None:
     for asset in preview_assets[:3]:
         preview_file = Path(asset)
         if preview_file.exists():
-            st.image(str(preview_file), caption=preview_file.name, use_container_width=True)
+            st.image(str(preview_file), caption=preview_file.name, width=PREVIEW_MEDIA_WIDTH)
 
     if not show_debug_assets:
         return
@@ -76,4 +99,4 @@ def show_result(result: dict, show_debug_assets: bool = False) -> None:
     for asset in debug_assets[:3]:
         debug_file = Path(asset)
         if debug_file.exists():
-            st.image(str(debug_file), caption=debug_file.name, use_container_width=True)
+            st.image(str(debug_file), caption=debug_file.name, width=PREVIEW_MEDIA_WIDTH)

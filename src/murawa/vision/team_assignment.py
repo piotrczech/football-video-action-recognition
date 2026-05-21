@@ -97,7 +97,7 @@ def assign_teams_to_frame(
             "min_player_box_height_px": MIN_PLAYER_BOX_HEIGHT_PX,
             "min_player_confidence": MIN_PLAYER_CONFIDENCE,
         },
-        "team_counts": _count_player_teams(enriched),
+        "team_counts": count_player_teams(enriched),
         "team_colors_bgr": _summarize_team_colors(enriched),
         "minimap_entities": len(minimap_entities),
         "notes": [
@@ -148,7 +148,7 @@ def _smooth_team_by_track_id(detections: list[dict[str, Any]]) -> list[dict[str,
     return smoothed
 
 
-def _count_player_teams(detections: list[dict[str, Any]]) -> dict[str, int]:
+def count_player_teams(detections: list[dict[str, Any]]) -> dict[str, int]:
     team_counts: Counter[str] = Counter()
 
     for det in detections:

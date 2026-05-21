@@ -1,9 +1,9 @@
+from collections.abc import Callable
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
 import csv
 from dataclasses import dataclass
 import json
 import logging
-import math
 from pathlib import Path
 import random
 import shutil
@@ -189,83 +189,58 @@ class RfDetrAdapter:
         checkpoint_path: Path,
         mode: str,
     ) -> list[dict]:
-        supported_modes = {"frame", "match"}
-        if mode not in supported_modes:
-            raise ValueError(f"Unsupported mode='{mode}'. Expected one of: {sorted(supported_modes)}.")
+        if mode != "frame":
+            raise ValueError("RfDetrAdapter.predict supports only mode='frame'.")
 
-        input_path = input_path.resolve()
+        frame_batches = self.predict_frames(
+            frame_paths=[input_path],
+            checkpoint_path=checkpoint_path,
+        )
+        return frame_batches[0]
+
+    def predict_frames(
+        self,
+        frame_paths: list[Path],
+        *,
+        checkpoint_path: Path,
+        progress_callback: Callable[[int, int], None] | None = None,
+    ) -> list[list[dict]]:
         checkpoint_path = checkpoint_path.resolve()
-        if not input_path.exists() or not input_path.is_file():
-            raise FileNotFoundError(f"Prediction input does not exist or is not a file: {input_path}")
         if not checkpoint_path.exists() or not checkpoint_path.is_file():
             raise FileNotFoundError(f"RF-DETR checkpoint does not exist: {checkpoint_path}")
 
-        variant = _resolve_prediction_variant(checkpoint_path=checkpoint_path)
-        rfdetr_cls = _import_rfdetr(variant)
-        try:
-            model = rfdetr_cls(pretrain_weights=str(checkpoint_path))
-        except Exception as exc:
-            raise RuntimeError(
-                f"RF-DETR backend failed to load checkpoint '{checkpoint_path}' "
-                f"for variant='{variant}': {exc}"
-            ) from exc
+        model = _load_prediction_model(checkpoint_path=checkpoint_path)
 
         class_mapping = _load_class_mapping(checkpoint_path=checkpoint_path)
         detection_confidence = _resolve_detection_confidence(checkpoint_path=checkpoint_path)
-        if mode == "frame":
-            if input_path.suffix.lower() not in IMAGE_SUFFIXES:
+        frame_batches: list[list[dict]] = []
+        total_frames = len(frame_paths)
+
+        for frame_number, frame_path in enumerate(frame_paths, start=1):
+            resolved_frame = frame_path.resolve()
+            if resolved_frame.suffix.lower() not in IMAGE_SUFFIXES:
                 raise ValueError(
-                    f"Frame mode requires an image file. Received suffix='{input_path.suffix}'."
+                    f"RF-DETR sampled frame requires an image file. Received: {resolved_frame}"
                 )
-            frame_rgb = _read_frame_image_rgb(input_path)
-            detections = _predict_image(model=model, image=frame_rgb, threshold=detection_confidence)
-            return _convert_detections_to_frame_schema(detections, class_mapping)
+            if not resolved_frame.exists() or not resolved_frame.is_file():
+                raise FileNotFoundError(
+                    f"RF-DETR sampled frame does not exist: {resolved_frame}"
+                )
 
-        if input_path.suffix.lower() not in VIDEO_SUFFIXES:
-            raise ValueError(
-                f"Match mode requires a video file. Received suffix='{input_path.suffix}', "
-                f"expected one of {sorted(VIDEO_SUFFIXES)}."
+            frame_rgb = _read_frame_image_rgb(resolved_frame)
+            detections = _predict_image(
+                model=model,
+                image=frame_rgb,
+                threshold=detection_confidence,
             )
+            frame_batches.append(_convert_detections_to_frame_schema(detections, class_mapping))
+            if progress_callback is not None:
+                progress_callback(frame_number, total_frames)
 
-        cap = cv2.VideoCapture(str(input_path))
-        if not cap.isOpened():
-            raise RuntimeError(f"Could not open video input for RF-DETR prediction: {input_path}")
-
-        frame_step = 5
-        frame_index = -1
-        frame_batches: list[tuple[int, list[dict]]] = []
-        try:
-            while True:
-                ok, frame_bgr = cap.read()
-                if not ok:
-                    break
-                frame_index += 1
-                if frame_index % frame_step != 0:
-                    continue
-
-                frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-                try:
-                    detections = _predict_image(
-                        model=model,
-                        image=frame_rgb,
-                        threshold=detection_confidence,
-                    )
-                except Exception as exc:
-                    raise RuntimeError(
-                        f"RF-DETR match prediction failed at frame_index={frame_index}: {exc}"
-                    ) from exc
-
-                frame_batches.append(
-                    (frame_index, _convert_detections_to_frame_schema(detections, class_mapping))
-                )
-        finally:
-            cap.release()
-
-        return _to_match_schema(frame_batches=frame_batches, max_distance_px=55.0)
+        return frame_batches
 
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp"}
-VIDEO_SUFFIXES = {".mp4", ".avi", ".mov", ".mkv", ".webm"}
 METRICS_CSV_NAMES = ("metrics.csv", "results.csv")
 RFDETR_RESOLUTION_BLOCK = 32
 RFDETR_DEFAULT_RESOLUTIONS = {
@@ -781,6 +756,18 @@ def _find_metrics_csv(backend_dir: Path) -> Path | None:
     return candidates[0]
 
 
+def _load_prediction_model(checkpoint_path: Path):
+    variant = _resolve_prediction_variant(checkpoint_path=checkpoint_path)
+    rfdetr_cls = _import_rfdetr(variant)
+    try:
+        return rfdetr_cls(pretrain_weights=str(checkpoint_path))
+    except Exception as exc:
+        raise RuntimeError(
+            f"RF-DETR backend failed to load checkpoint '{checkpoint_path}' "
+            f"for variant='{variant}': {exc}"
+        ) from exc
+
+
 def _predict_image(model, image: Any, threshold: float):
     try:
         detections = model.predict(image, threshold=threshold)
@@ -819,50 +806,6 @@ def _convert_detections_to_frame_schema(detections: Any, class_mapping: dict[int
             }
         )
     return payload
-
-
-def _to_match_schema(frame_batches: list[tuple[int, list[dict]]], max_distance_px: float) -> list[dict]:
-    active_tracks: dict[str, list[tuple[int, tuple[float, float]]]] = {}
-    next_track_id = 1
-    output: list[dict] = []
-
-    for frame_index, detections in frame_batches:
-        new_tracks: dict[str, list[tuple[int, tuple[float, float]]]] = {}
-        used_track_ids: set[int] = set()
-        for det in detections:
-            x1, y1, x2, y2 = det["bbox_xyxy"]
-            center = ((x1 + x2) / 2.0, (y1 + y2) / 2.0)
-            class_name = det["class"]
-            assigned_track_id = None
-            best_distance = None
-
-            for track_id, previous_center in active_tracks.get(class_name, []):
-                if track_id in used_track_ids:
-                    continue
-                distance = math.dist(center, previous_center)
-                if distance > max_distance_px:
-                    continue
-                if best_distance is None or distance < best_distance:
-                    best_distance = distance
-                    assigned_track_id = track_id
-
-            if assigned_track_id is None:
-                assigned_track_id = next_track_id
-                next_track_id += 1
-
-            used_track_ids.add(assigned_track_id)
-            new_tracks.setdefault(class_name, []).append((assigned_track_id, center))
-            output.append(
-                {
-                    "frame_index": frame_index,
-                    "class": class_name,
-                    "confidence": float(det["confidence"]),
-                    "track_id": assigned_track_id,
-                }
-            )
-        active_tracks = new_tracks
-
-    return output
 
 
 def _load_class_mapping(checkpoint_path: Path) -> dict[int, str]:

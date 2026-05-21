@@ -23,6 +23,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional input path: image for mode=frame, video for mode=match.",
     )
+    p.add_argument(
+        "--sample-fps",
+        type=int,
+        default=3,
+        help="Frame sampling rate for mode=match. Expected range: 1-24.",
+    )
     return p.parse_args()
 
 
@@ -42,6 +48,7 @@ def main() -> int:
             model=args.model,
             dataset_variant=args.dataset_variant,
             input_path=args.input_path,
+            sample_fps=args.sample_fps,
         )
 
     if result["status"] != "ok":
@@ -54,6 +61,8 @@ def main() -> int:
     logger.info("detections=%s", result.get("stats", {}).get("total_detections", 0))
     logger.info("preview_assets=%s", len(result.get("preview_assets", [])))
     logger.info("debug_preview_assets=%s", len(result.get("debug_preview_assets", [])))
+    if result.get("video_path"):
+        logger.info("video=%s", result["video_path"])
 
     print(
         json.dumps(
@@ -66,6 +75,9 @@ def main() -> int:
                 "summary_path": result["summary_path"],
                 "preview_assets": result.get("preview_assets", []),
                 "debug_preview_assets": result.get("debug_preview_assets", []),
+                "video_path": result.get("video_path", ""),
+                "sample_fps": result.get("sample_fps"),
+                "sampled_frames": result.get("sampled_frames"),
                 "stats": result.get("stats", {}),
             },
             indent=2,

@@ -156,7 +156,7 @@ This creates:
 python scripts/predict.py --model yolo --dataset-variant base --mode frame
 
 # match-style analysis
-python scripts/predict.py --model yolo --dataset-variant base --mode match --input-path /path/to/match.mp4
+python scripts/predict.py --model yolo --dataset-variant base --mode match --input-path /path/to/match.mp4 --sample-fps 3
 ```
 
 Note: `mode=match` requires a video input. If no fallback video is found in `data/ready/<variant>/test`, pass `--input-path`.
@@ -165,6 +165,8 @@ Outputs are written to:
 - `outputs/predictions/<run_name>/prediction_summary.json`
 - `outputs/predictions/<run_name>/*_prediction.txt`
 - `outputs/predictions/<run_name>/preview/*.jpg` (mini preview frames/images)
+- `outputs/predictions/<run_name>/<analysis_id>/...` for match-video summaries and detection payloads
+- `outputs/videos/*.webm` for browser-ready match-analysis videos generated from uploaded or CLI video clips
 
 ### Use internet APP by streamlit GUI
 

@@ -1,7 +1,7 @@
 import streamlit as st
 
 from murawa.services.pipeline import analyze_frame_run
-from ui_common import ROOT, format_run_label, save_upload, show_result, trained_runs
+from ui_common import ROOT, format_run_label, show_result, temporary_upload_path, trained_runs
 
 
 def render() -> None:
@@ -30,11 +30,12 @@ def render() -> None:
     )
 
     if st.button("Uruchom analizę klatki", key="run_frame"):
-        st.session_state["frame_last_result"] = analyze_frame_run(
-            project_root=ROOT,
-            run_name=selected_run.run_name,
-            input_path=save_upload(uploaded),
-        )
+        with temporary_upload_path(uploaded) as upload_path:
+            st.session_state["frame_last_result"] = analyze_frame_run(
+                project_root=ROOT,
+                run_name=selected_run.run_name,
+                input_path=upload_path,
+            )
 
     result = st.session_state.get("frame_last_result")
     if isinstance(result, dict):

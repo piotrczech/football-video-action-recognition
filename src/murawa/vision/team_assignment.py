@@ -17,7 +17,6 @@ from murawa.vision.team_assignment_helpers import (
     read_bbox_xyxy,
 )
 
-
 PLAYER_CLASSES = {"player", "goalkeeper"}
 REFEREE_CLASSES = {"referee"}
 
@@ -135,13 +134,6 @@ def _smooth_team_by_track_id(detections: list[dict[str, Any]]) -> list[dict[str,
         team_votes = votes_by_track[track_id]
         final_team, final_votes = team_votes.most_common(1)[0]
         total_votes = sum(team_votes.values())
-        previous_team = det.get("team")
-
-        if previous_team != final_team:
-            det["team_raw"] = previous_team
-            det["team_confidence_raw"] = det.get("team_confidence")
-            det["team_smoothed"] = True
-
         det["team"] = final_team
         det["team_confidence"] = round(final_votes / total_votes, 4)
 

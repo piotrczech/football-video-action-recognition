@@ -1,8 +1,6 @@
 from pathlib import Path
 
 import streamlit as st
-
-from murawa.services.pipeline import analyze_match_run
 from ui_common import (
     PREVIEW_MEDIA_WIDTH,
     ROOT,
@@ -13,11 +11,14 @@ from ui_common import (
     video_mime_type,
 )
 
+from murawa.services.pipeline import analyze_match_run
+
 PROGRESS_RANGES = {
     "validate": (0.0, 0.08),
     "extract": (0.08, 0.25),
     "inference": (0.33, 0.45),
-    "render": (0.78, 0.20),
+    "tracking": (0.78, 0.10),
+    "render": (0.88, 0.10),
     "save": (0.98, 0.02),
 }
 
@@ -50,6 +51,19 @@ def render() -> None:
         value=3,
         key="match_sample_fps",
     )
+    overlay_controls = st.columns(2)
+    with overlay_controls[0]:
+        show_boxes = st.checkbox(
+            "Ramki detekcji",
+            value=True,
+            key="match_show_boxes",
+        )
+    with overlay_controls[1]:
+        show_confidence = st.checkbox(
+            "Confidence w podpisach",
+            value=False,
+            key="match_show_confidence",
+        )
     st.caption("Obsługiwane są klipy demo do 60 sekund.")
 
     run_clicked = st.button(
@@ -73,6 +87,8 @@ def render() -> None:
                 run_name=selected_run.run_name,
                 input_path=upload_path,
                 sample_fps=sample_fps,
+                show_boxes=show_boxes,
+                show_confidence=show_confidence,
                 progress_callback=on_progress,
             )
 
@@ -94,16 +110,21 @@ def _show_match_result(result: dict) -> None:
 
     metadata = result.get("video_metadata", {})
     stats = result.get("stats", {})
+    tracking = result.get("tracking", {})
+    tracking_info = tracking if isinstance(tracking, dict) else {}
     duration = float(metadata.get("duration_seconds", 0.0))
     input_fps = float(metadata.get("fps", 0.0))
     width = int(metadata.get("width", 0))
     height = int(metadata.get("height", 0))
 
-    metrics = st.columns(4)
+    metrics = st.columns(5)
     metrics[0].metric("Długość klipu", f"{duration:.1f} s")
     metrics[1].metric("Próbkowanie", f"{result.get('sample_fps', 0)} FPS")
     metrics[2].metric("Klatki analizy", str(result.get("sampled_frames", 0)))
     metrics[3].metric("Detekcje", str(stats.get("total_detections", 0)))
+    metrics[4].metric("Tracki", str(stats.get("track_count", tracking_info.get("track_count", 0))))
+    if tracking_info.get("enabled"):
+        st.caption(f"Tracking: `{tracking_info.get('method', 'unknown')}`")
 
     if video_path.exists():
         st.video(

@@ -4,9 +4,9 @@ from datetime import datetime
 from typing import Any
 
 import streamlit as st
+from ui_common import PREVIEW_MEDIA_WIDTH, ROOT, show_counts, video_mime_type
 
 from murawa.services.saved_match_analyses import SavedMatchAnalysis, list_saved_match_analyses
-from ui_common import PREVIEW_MEDIA_WIDTH, ROOT, show_counts, video_mime_type
 
 
 def render() -> None:
@@ -68,11 +68,15 @@ def _show_summary(summary: dict[str, Any]) -> None:
 
     metadata = _mapping(summary.get("video_metadata"))
     stats = _mapping(summary.get("stats"))
-    metrics = st.columns(4)
+    tracking = _mapping(summary.get("tracking"))
+    metrics = st.columns(5)
     metrics[0].metric("Długość klipu", _duration_value(metadata.get("duration_seconds")))
     metrics[1].metric("Próbkowanie", _fps_value(summary.get("sample_fps")))
     metrics[2].metric("Klatki analizy", _count_value(summary.get("sampled_frames")))
     metrics[3].metric("Detekcje", _count_value(stats.get("total_detections")))
+    metrics[4].metric("Tracki", _count_value(stats.get("track_count")))
+    if tracking.get("enabled"):
+        st.caption(f"Tracking: `{_string_value(tracking.get('method'))}`")
 
     details = st.columns(2)
     with details[0]:

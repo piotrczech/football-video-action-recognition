@@ -231,6 +231,7 @@ def _run_analysis_for_run(
             checkpoint_path=checkpoint_path,
             mode="frame",
         )
+        detections, primary_ball_filter = _select_primary_ball_detections(detections)
     except Exception as exc:
         base_payload["status"] = "error"
         base_payload["resolved_input"] = resolved_input
@@ -279,6 +280,7 @@ def _run_analysis_for_run(
         "debug_preview_assets": debug_preview_assets,
         "stats": stats,
         "team_assignment": team_assignment,
+        "primary_ball_filter": primary_ball_filter,
         "minimap_entities": minimap_entities,
         "detections": detections,
     }
@@ -738,6 +740,42 @@ def _make_base_payload(mode: str, model: str, dataset_variant: str) -> dict:
         "detections": [],
     }
 
+def _select_primary_ball_detections(detections: list[dict]) -> tuple[list[dict], dict]:
+    ball_indexes: list[int] = []
+
+    for idx, detection in enumerate(detections):
+        if normalize_class_name(detection.get("class")) == "ball":
+            ball_indexes.append(idx)
+
+    if len(ball_indexes) <= 1:
+        return detections, {
+            "enabled": True,
+            "policy": "keep_highest_confidence_ball_per_frame",
+            "raw_detection_count": len(detections),
+            "filtered_detection_count": len(detections),
+            "ball_candidates_before": len(ball_indexes),
+            "ball_candidates_after": len(ball_indexes),
+        }
+
+    best_ball_idx = max(
+        ball_indexes,
+        key=lambda idx: float(detections[idx].get("confidence", 0.0)),
+    )
+
+    filtered = [
+        detection
+        for idx, detection in enumerate(detections)
+        if normalize_class_name(detection.get("class")) != "ball" or idx == best_ball_idx
+    ]
+
+    return filtered, {
+        "enabled": True,
+        "policy": "keep_highest_confidence_ball_per_frame",
+        "raw_detection_count": len(detections),
+        "filtered_detection_count": len(filtered),
+        "ball_candidates_before": len(ball_indexes),
+        "ball_candidates_after": 1,
+    }
 
 def _build_detection_stats(detections: list[dict]) -> dict:
     by_class: dict[str, int] = {}

@@ -13,3 +13,5 @@ SoccerNet>=0.1.62
 python-dotenv>=1.0
 pytorch-lightning>=2.2.4
 faster-coco-eval>=1.6.0
+umap-learn
+trackers

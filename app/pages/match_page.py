@@ -135,7 +135,7 @@ def _show_match_result(result: dict) -> None:
         actions = st.columns([1, 2])
         with actions[0]:
             st.download_button(
-                "Pobierz wynik",
+                "Pobierz wynik wideo",
                 data=video_path.read_bytes(),
                 file_name=video_path.name,
                 mime=video_mime_type(video_path),
@@ -156,7 +156,8 @@ def _show_match_result(result: dict) -> None:
         show_counts("Klasy detekcji", stats.get("classes", {}), "Klasa")
     with details[2]:
         show_counts("Drużyny", stats.get("team_counts", {}), "Etykieta")
-
+    with st.expander("Raw summary", expanded=False):
+        st.json(result)
 
 if __name__ == "__main__":
     render()

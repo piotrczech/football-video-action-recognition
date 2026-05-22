@@ -105,7 +105,8 @@ def _show_match_result(result: dict) -> None:
         st.error(result.get("message", "Analiza klipu zakończyła się błędem."))
         return
 
-    video_path = Path(result.get("video_path", ""))
+    video_path = Path(result.get("preview_video_path") or result.get("video_path", ""))
+    download_video_path = Path(result.get("download_video_path") or result.get("video_path", ""))
     st.success("Analiza klipu zakończona.")
 
     metadata = result.get("video_metadata", {})
@@ -134,14 +135,18 @@ def _show_match_result(result: dict) -> None:
         )
         actions = st.columns([1, 2])
         with actions[0]:
+            download_path = download_video_path if download_video_path.exists() else video_path
+
             st.download_button(
                 "Pobierz wynik wideo",
-                data=video_path.read_bytes(),
-                file_name=video_path.name,
-                mime=video_mime_type(video_path),
+                data=download_path.read_bytes(),
+                file_name=download_path.name,
+                mime=video_mime_type(download_path),
             )
         with actions[1]:
-            st.caption(f"Zapisano: `{video_path}`")
+            st.caption(f"Podgląd: `{video_path}`")
+            if download_video_path.exists():
+                st.caption(f"Pobieranie: `{download_video_path}`")
     else:
         st.warning("Wideo wynikowe nie jest już dostępne na dysku.")
 

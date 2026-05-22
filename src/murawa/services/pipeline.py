@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from uuid import uuid4
-
+from collections import Counter
 import cv2
 import numpy as np
 
@@ -357,7 +357,11 @@ def _run_match_video_analysis(
     videos_dir = project_root / "outputs" / "videos"
     summary_path = out_dir / "prediction_summary.json"
     preview_path = out_dir / "match_prediction.txt"
-    video_path = videos_dir / f"{analysis_id}.webm"
+    preview_video_path = videos_dir / f"{analysis_id}.webm"
+    download_video_path = videos_dir / f"{analysis_id}.mp4"
+
+    # Backward-compatible main preview path.
+    video_path = preview_video_path
 
     out_dir.mkdir(parents=True, exist_ok=True)
     videos_dir.mkdir(parents=True, exist_ok=True)
@@ -414,6 +418,9 @@ def _run_match_video_analysis(
                 frame_batches=tracked_batches,
                 progress_callback=progress_callback,
             )
+            team_batches, clip_team_summary = _stabilize_match_team_assignments_with_clip_prototypes(
+                team_batches
+            )
             _emit_progress(
                 progress_callback,
                 "tracking",
@@ -429,7 +436,13 @@ def _run_match_video_analysis(
                 memory_seconds=PRIMARY_BALL_MEMORY_SECONDS,
             )
             team_summaries = [
-                _team_overlay_summary(summary=summary, detections=detections)
+                _team_overlay_summary(
+                    summary=_team_summary_with_clip_prototypes(
+                        summary=summary,
+                        clip_team_summary=clip_team_summary,
+                    ),
+                    detections=detections,
+                )
                 for summary, detections in zip(team_summaries, selected_batches, strict=True)
             ]
             _emit_progress(
@@ -440,7 +453,7 @@ def _run_match_video_analysis(
             )
 
             detections = _write_annotated_match_video(
-                video_path=video_path,
+                video_path=preview_video_path,
                 sampled_frames=sampled_frames,
                 frame_batches=selected_batches,
                 team_summaries=team_summaries,
@@ -449,11 +462,24 @@ def _run_match_video_analysis(
                 show_confidence=show_confidence,
                 progress_callback=progress_callback,
             )
+
+            _write_annotated_match_video(
+                video_path=download_video_path,
+                sampled_frames=sampled_frames,
+                frame_batches=selected_batches,
+                team_summaries=team_summaries,
+                sample_fps=parsed_sample_fps,
+                show_boxes=show_boxes,
+                show_confidence=show_confidence,
+                progress_callback=None,
+            )
     except Exception as exc:
-        video_path.unlink(missing_ok=True)
+        preview_video_path.unlink(missing_ok=True)
+        download_video_path.unlink(missing_ok=True)
         base_payload["status"] = "error"
         base_payload["output_dir"] = str(out_dir)
-        base_payload["video_path"] = str(video_path)
+        base_payload["video_path"] = str(preview_video_path)
+        base_payload["download_video_path"] = str(download_video_path)
         base_payload["message"] = f"Match video analysis failed: {exc}"
         return base_payload
 
@@ -486,7 +512,9 @@ def _run_match_video_analysis(
         "preview_path": str(preview_path),
         "preview_assets": [],
         "debug_preview_assets": [],
-        "video_path": str(video_path),
+        "video_path": str(preview_video_path),
+        "preview_video_path": str(preview_video_path),
+        "download_video_path": str(download_video_path),
         "video_metadata": metadata.as_dict(),
         "sample_fps": parsed_sample_fps,
         "sampled_frames": len(sampled_frames),
@@ -499,8 +527,11 @@ def _run_match_video_analysis(
         },
         "team_assignment": {
             "enabled": True,
-            "method": "jersey_color_kmeans_mvp_per_sampled_frame",
+            "method": "clip_level_jersey_color_prototypes_with_track_smoothing",
+            "frame_assignment_method": "jersey_color_kmeans_mvp_per_sampled_frame",
+            "scope": "whole_clip",
             "team_counts": stats["team_counts"],
+            "clip_level": clip_team_summary,
         },
         "minimap_entities": [],
         "detections": detections,
@@ -517,7 +548,8 @@ def _run_match_video_analysis(
                 f"sampled_frames={len(sampled_frames)}",
                 f"detections={stats.get('total_detections', 0)}",
                 f"tracks={tracking.get('track_count', 0)}",
-                f"video_path={video_path}",
+                f"video_path={preview_video_path}",
+                f"download_video_path={download_video_path}",
                 "Sampled-frame video analysis output.",
                 "",
             ]
@@ -532,6 +564,10 @@ def _run_match_video_analysis(
     )
     return payload
 
+def _video_writer_fourcc(video_path: Path) -> int:
+    if video_path.suffix.lower() == ".mp4":
+        return cv2.VideoWriter_fourcc(*"mp4v")
+    return cv2.VideoWriter_fourcc(*"VP80")
 
 def _write_annotated_match_video(
     *,
@@ -562,7 +598,7 @@ def _write_annotated_match_video(
                 frame_size = (width, height)
                 writer = cv2.VideoWriter(
                     str(video_path),
-                    cv2.VideoWriter_fourcc(*"VP80"),
+                    _video_writer_fourcc(video_path),
                     float(sample_fps),
                     frame_size,
                 )
@@ -645,6 +681,266 @@ def _assign_teams_to_match_frames(
 
     return assigned_batches, team_summaries
 
+def _stabilize_match_team_assignments_with_clip_prototypes(
+    frame_batches: list[list[dict]],
+) -> tuple[list[list[dict]], dict]:
+    """Stabilize team labels using two jersey-color prototypes for the whole clip.
+
+    Per-frame team assignment can swap team_a/team_b between sampled frames.
+    This function uses all sampled frames to build two global team color prototypes
+    and then relabels every player detection against these stable prototypes.
+    """
+    stabilized_batches = [[dict(detection) for detection in batch] for batch in frame_batches]
+    observations: list[dict[str, object]] = []
+
+    for batch_index, batch in enumerate(stabilized_batches):
+        for detection_index, detection in enumerate(batch):
+            class_name = normalize_class_name(detection.get("class"))
+            if class_name not in PLAYER_CLASSES:
+                continue
+
+            color_bgr = _read_jersey_color_array(detection.get("jersey_color_bgr"))
+            if color_bgr is None:
+                continue
+
+            observations.append(
+                {
+                    "batch_index": batch_index,
+                    "detection_index": detection_index,
+                    "color_bgr": color_bgr,
+                    "raw_team": str(detection.get("team", "unknown")),
+                    "weight": max(
+                        0.10,
+                        min(
+                            1.0,
+                            _read_numeric_confidence(
+                                detection.get("team_confidence"),
+                                fallback=detection.get("confidence"),
+                            ),
+                        ),
+                    ),
+                }
+            )
+
+    if len(observations) < 2:
+        return stabilized_batches, {
+            "enabled": False,
+            "method": "clip_level_jersey_color_prototypes",
+            "reason": "not_enough_jersey_color_observations",
+            "observations": len(observations),
+        }
+
+    colors_bgr = np.stack(
+        [observation["color_bgr"] for observation in observations]
+    ).astype(np.float32)
+    colors_lab = _bgr_colors_to_lab(colors_bgr)
+
+    centers_lab, groups = _cluster_two_clip_color_groups(colors_lab)
+    group_counts = Counter(int(group) for group in groups.tolist())
+
+    if len(group_counts) < 2:
+        return stabilized_batches, {
+            "enabled": False,
+            "method": "clip_level_jersey_color_prototypes",
+            "reason": "single_color_group",
+            "observations": len(observations),
+        }
+
+    group_to_team = _map_clip_groups_to_existing_team_labels(
+        observations=observations,
+        groups=groups,
+    )
+
+    team_colors_bgr = _clip_team_colors_bgr(
+        observations=observations,
+        groups=groups,
+        group_to_team=group_to_team,
+    )
+    relabeled_counts: Counter[str] = Counter()
+
+    for observation_index, observation in enumerate(observations):
+        batch_index = int(observation["batch_index"])
+        detection_index = int(observation["detection_index"])
+        group = int(groups[observation_index])
+        team = group_to_team[group]
+
+        detection = stabilized_batches[batch_index][detection_index]
+        raw_team = detection.get("team")
+
+        detection["team_raw_frame"] = raw_team
+        detection["team"] = team
+        detection["team_smoothing"] = "clip_level_color_prototype"
+        detection["team_confidence"] = round(
+            _clip_assignment_confidence(
+                point_lab=colors_lab[observation_index],
+                centers_lab=centers_lab,
+                group=group,
+            ),
+            4,
+        )
+        relabeled_counts[team] += 1
+
+    return stabilized_batches, {
+        "enabled": True,
+        "method": "clip_level_jersey_color_prototypes",
+        "scope": "whole_clip",
+        "observations": len(observations),
+        "group_counts": {
+            str(group): int(count) for group, count in sorted(group_counts.items())
+        },
+        "team_counts_from_color_observations": dict(sorted(relabeled_counts.items())),
+        "team_colors_bgr": team_colors_bgr,
+        "notes": [
+            "Two global jersey-color prototypes are estimated from all sampled frames.",
+            "Player detections are relabeled against the same prototypes across the whole clip.",
+            "Track smoothing is applied afterwards, so track_id voting uses stabilized labels.",
+        ],
+    }
+
+
+def _team_summary_with_clip_prototypes(*, summary: dict, clip_team_summary: dict) -> dict:
+    enriched = dict(summary)
+
+    if not clip_team_summary.get("enabled"):
+        return enriched
+
+    enriched["method"] = "clip_level_jersey_color_prototypes"
+    enriched["scope"] = "whole_clip"
+    enriched["clip_level"] = clip_team_summary
+
+    team_colors = clip_team_summary.get("team_colors_bgr")
+    if isinstance(team_colors, dict) and team_colors:
+        enriched["team_colors_bgr"] = team_colors
+
+    return enriched
+
+
+def _read_jersey_color_array(value: object) -> np.ndarray | None:
+    if not isinstance(value, list) or len(value) != 3:
+        return None
+
+    try:
+        return np.asarray([float(channel) for channel in value], dtype=np.float32)
+    except (TypeError, ValueError):
+        return None
+
+
+def _read_numeric_confidence(value: object, *, fallback: object = None) -> float:
+    for candidate in (value, fallback):
+        if isinstance(candidate, bool):
+            continue
+        try:
+            return max(0.0, min(1.0, float(candidate)))
+        except (TypeError, ValueError):
+            continue
+    return 0.5
+
+
+def _bgr_colors_to_lab(colors_bgr: np.ndarray) -> np.ndarray:
+    colors = colors_bgr.reshape(-1, 1, 3).astype(np.uint8)
+    lab = cv2.cvtColor(colors, cv2.COLOR_BGR2LAB)
+    return lab.reshape(-1, 3).astype(np.float32)
+
+
+def _cluster_two_clip_color_groups(points_lab: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    if len(points_lab) < 2:
+        centers = np.vstack([points_lab[0], points_lab[0]]).astype(np.float32)
+        groups = np.zeros(len(points_lab), dtype=np.int32)
+        return centers, groups
+
+    distances = np.linalg.norm(points_lab[:, None, :] - points_lab[None, :, :], axis=2)
+    first, second = np.unravel_index(np.argmax(distances), distances.shape)
+
+    centers = np.stack([points_lab[first], points_lab[second]]).astype(np.float32)
+    groups = np.zeros(len(points_lab), dtype=np.int32)
+
+    for _ in range(15):
+        distance_to_centers = np.linalg.norm(
+            points_lab[:, None, :] - centers[None, :, :],
+            axis=2,
+        )
+        groups = np.argmin(distance_to_centers, axis=1).astype(np.int32)
+
+        for group in (0, 1):
+            mask = groups == group
+            if np.any(mask):
+                centers[group] = points_lab[mask].mean(axis=0)
+
+    return centers, groups
+
+
+def _map_clip_groups_to_existing_team_labels(
+    *,
+    observations: list[dict[str, object]],
+    groups: np.ndarray,
+) -> dict[int, str]:
+    """Orient global color groups to existing team_a/team_b labels.
+
+    This keeps labels as close as possible to the previous frame-level assignment,
+    but makes the mapping stable across the whole clip.
+    """
+    group_votes: dict[int, Counter[str]] = {0: Counter(), 1: Counter()}
+
+    for observation, group in zip(observations, groups.tolist(), strict=True):
+        raw_team = str(observation.get("raw_team", ""))
+        if raw_team not in {"team_a", "team_b"}:
+            continue
+
+        weight = float(observation.get("weight", 1.0))
+        group_votes[int(group)][raw_team] += weight
+
+    same_score = group_votes[0]["team_a"] + group_votes[1]["team_b"]
+    swapped_score = group_votes[0]["team_b"] + group_votes[1]["team_a"]
+
+    if same_score >= swapped_score:
+        return {0: "team_a", 1: "team_b"}
+
+    return {0: "team_b", 1: "team_a"}
+
+
+def _clip_team_colors_bgr(
+    *,
+    observations: list[dict[str, object]],
+    groups: np.ndarray,
+    group_to_team: dict[int, str],
+) -> dict[str, list[int]]:
+    colors_by_team: dict[str, list[np.ndarray]] = {"team_a": [], "team_b": []}
+
+    for observation, group in zip(observations, groups.tolist(), strict=True):
+        team = group_to_team[int(group)]
+        color_bgr = observation.get("color_bgr")
+        if isinstance(color_bgr, np.ndarray):
+            colors_by_team[team].append(color_bgr.astype(np.float32))
+
+    output: dict[str, list[int]] = {}
+    for team, colors in colors_by_team.items():
+        if not colors:
+            continue
+
+        median_color = np.median(np.stack(colors), axis=0)
+        output[team] = [
+            int(round(float(channel)))
+            for channel in median_color.tolist()
+        ]
+
+    return output
+
+
+def _clip_assignment_confidence(
+    *,
+    point_lab: np.ndarray,
+    centers_lab: np.ndarray,
+    group: int,
+) -> float:
+    own_distance = float(np.linalg.norm(point_lab - centers_lab[group]))
+    other_group = 1 - int(group)
+    other_distance = float(np.linalg.norm(point_lab - centers_lab[other_group]))
+
+    denominator = own_distance + other_distance
+    if denominator <= 1e-6:
+        return 0.5
+
+    return max(0.0, min(1.0, other_distance / denominator))
 
 def _team_overlay_summary(*, summary: dict, detections: list[dict]) -> dict:
     enriched = dict(summary)

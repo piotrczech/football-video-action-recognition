@@ -39,7 +39,12 @@ def render() -> None:
 
     result = st.session_state.get("frame_last_result")
     if isinstance(result, dict):
-        show_result(result, show_debug_assets=show_team_debug)
+        input_preview = uploaded.getvalue() if uploaded is not None else None
+        show_result(
+            result,
+            show_debug_assets=show_team_debug,
+            input_image=input_preview,
+        )
 
 
 if __name__ == "__main__":

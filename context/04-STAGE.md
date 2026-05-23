@@ -8,9 +8,10 @@ The goal of this stage is to reach a point where:
 - the prediction pipeline can use the selected model on consecutive frames,
 - the outputs are extended with tracking and team-related information,
 - a simplified minimap and an output video are generated,
-- the Streamlit application shows both the final result and selected intermediate outputs.
+- the Streamlit application shows both the final result and selected intermediate outputs,
+- training runs can be inspected in the **Analiza modeli** view (loss curve and mAP50 comparison from saved metadata).
 
-This stage is practical and integration-oriented. The goal is no longer to train models further, but to assemble them into a usable demonstration system. Some tasks in this stage may be developed independently of the final model and can rely on dummy data, mocks, or saved example outputs, which means that work on the UI and pipeline does not have to wait until the very end of the model stage.
+Final implementation map: [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 The shared standards for this stage are:
 - Streamlit should use one shared pipeline rather than separate flows for different models,

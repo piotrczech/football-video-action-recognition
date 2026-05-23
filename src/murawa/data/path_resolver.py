@@ -1,27 +1,29 @@
 from pathlib import Path
 
-READY_ROOT = Path("data/ready")
-PREDICTIONS_ROOT = Path("outputs/predictions")
-IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp"}
-VIDEO_SUFFIXES = {".mp4", ".avi", ".mov", ".mkv", ".webm"}
+from murawa.settings import (
+    DEFAULT_DATASET_VARIANT,
+    IMAGE_SUFFIXES,
+    VIDEO_SUFFIXES,
+    resolve_variant_dir,
+)
 
 
 def training_path(project_root: Path, dataset_variant: str) -> Path:
-    # TODO(Issue #9): finalize explicit variant naming/resolution strategy in data/ready.
-    specific = project_root / READY_ROOT / dataset_variant
-    if specific.exists():
-        return specific
-    return project_root / READY_ROOT / "base"
+    return resolve_variant_dir(project_root, dataset_variant)
 
 
-def pick_input(project_root: Path, mode: str, dataset_variant: str = "base") -> tuple[str, bool]:
+def pick_input(
+    project_root: Path,
+    mode: str,
+    dataset_variant: str = DEFAULT_DATASET_VARIANT,
+) -> tuple[str, bool]:
     root = training_path(project_root, dataset_variant) / "test"
     if not root.exists():
         return str(root), False
 
     files = sorted(
-        (p for p in root.rglob("*") if p.is_file() and not p.name.startswith(".")),
-        key=lambda p: str(p).lower(),
+        (path for path in root.rglob("*") if path.is_file() and not path.name.startswith(".")),
+        key=lambda path: str(path).lower(),
     )
     if not files:
         return str(root), False
@@ -30,7 +32,7 @@ def pick_input(project_root: Path, mode: str, dataset_variant: str = "base") -> 
     if not allowed_suffixes:
         return str(root), False
 
-    candidates = [p for p in files if p.suffix.lower() in allowed_suffixes]
+    candidates = [path for path in files if path.suffix.lower() in allowed_suffixes]
     if not candidates:
         return str(root), False
 

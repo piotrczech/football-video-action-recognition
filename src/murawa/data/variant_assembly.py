@@ -21,7 +21,9 @@ from murawa.data.variant_image_transforms import (
     apply_lightweight_training_transform,
 )
 
-COCO_REQUIRED_KEYS = {"images", "annotations", "categories"}
+from murawa.data.coco_io import load_coco, save_coco
+from murawa.settings import DEFAULT_FRAME_STEP, infer_project_root_from_ready_root
+
 SUPPORTED_VARIANTS = (
     *BOOTSTRAP_VARIANTS,
     "extended-transformed",
@@ -36,7 +38,7 @@ class VariantAssemblyConfig:
     variant_name: str
     include_ball_extra: bool = False
     enable_transforms: bool = False
-    frame_step: int = 30
+    frame_step: int = DEFAULT_FRAME_STEP
     force: bool = False
 
 
@@ -50,7 +52,7 @@ class VariantSpec:
 def assemble_variant(config: VariantAssemblyConfig) -> Path:
     """Build one named variant in data/ready and write concise metadata."""
     spec = _resolve_variant_spec(config.variant_name)
-    project_root = _resolve_project_root(config.final_root)
+    project_root = infer_project_root_from_ready_root(config.final_root)
 
     if spec.transforms_enabled:
         source_variant_dir = _ensure_source_variant(
@@ -168,10 +170,6 @@ def _resolve_variant_spec(variant_name: str) -> VariantSpec:
     )
 
 
-def _resolve_project_root(final_root: Path) -> Path:
-    final_root = Path(final_root).resolve()
-    return final_root.parents[1]
-
 def _to_project_relative_path(path: Path, project_root: Path) -> str:
     path = Path(path).resolve()
     project_root = Path(project_root).resolve()
@@ -209,7 +207,7 @@ def _ensure_source_variant(
 
 def _augment_train_split_with_transformed_copies(train_split_dir: Path) -> dict[str, object]:
     annotation_path = train_split_dir / "_annotations.coco.json"
-    payload = _load_coco(annotation_path)
+    payload = load_coco(annotation_path)
 
     images = payload["images"]
     annotations = payload["annotations"]
@@ -397,7 +395,7 @@ def _read_split_stats(variant_dir: Path) -> dict[str, dict[str, int]]:
     stats: dict[str, dict[str, int]] = {}
     for split in SPLITS:
         annotation_path = variant_dir / split / "_annotations.coco.json"
-        payload = _load_coco(annotation_path)
+        payload = load_coco(annotation_path)
         stats[split] = {
             "images": len(payload["images"]),
             "annotations": len(payload["annotations"]),
@@ -415,7 +413,7 @@ def _validate_variant_dir(variant_dir: Path) -> None:
             raise FileNotFoundError(f"Missing split directory: {split_dir}")
 
         annotation_path = split_dir / "_annotations.coco.json"
-        payload = _load_coco(annotation_path)
+        payload = load_coco(annotation_path)
 
         for image_entry in payload["images"]:
             file_name = image_entry.get("file_name")
@@ -427,19 +425,6 @@ def _validate_variant_dir(variant_dir: Path) -> None:
                 raise FileNotFoundError(
                     f"Broken image path in variant '{variant_dir.name}', split '{split}': {file_name}"
                 )
-
-
-def _load_coco(annotation_path: Path) -> dict:
-    if not annotation_path.exists():
-        raise FileNotFoundError(f"Missing COCO annotation file: {annotation_path}")
-
-    payload = json.loads(annotation_path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict) or not COCO_REQUIRED_KEYS.issubset(payload):
-        raise ValueError(
-            f"Invalid COCO payload in: {annotation_path}. "
-            f"Required keys: {sorted(COCO_REQUIRED_KEYS)}"
-        )
-    return payload
 
 
 __all__ = [

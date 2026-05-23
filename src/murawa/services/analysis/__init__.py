@@ -1,24 +1,14 @@
-from murawa.services.runtime.artifacts import (
-    TrainedRunRecord,
-    latest_run,
-    list_available_runs,
-    load_run_metrics,
-    resolve_run,
-)
+from murawa.services.analysis import clip_teams
 
 __all__ = [
-    "TrainedRunRecord",
     "analyze_frame",
     "analyze_frame_run",
     "analyze_match",
     "analyze_match_run",
-    "latest_run",
-    "list_available_runs",
-    "load_run_metrics",
-    "resolve_run",
+    "clip_teams",
 ]
 
-_ANALYSIS_EXPORTS = {
+_PIPELINE_EXPORTS = {
     "analyze_frame",
     "analyze_frame_run",
     "analyze_match",
@@ -27,7 +17,9 @@ _ANALYSIS_EXPORTS = {
 
 
 def __getattr__(name: str):
-    if name in _ANALYSIS_EXPORTS:
+    if name == "clip_teams":
+        return clip_teams
+    if name in _PIPELINE_EXPORTS:
         from murawa.services.analysis import pipeline as analysis_pipeline
 
         return getattr(analysis_pipeline, name)

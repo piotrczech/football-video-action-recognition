@@ -1,0 +1,49 @@
+paths:
+  data_raw: data/raw
+  data_ready: data/ready
+  models_checkpoints: models/checkpoints
+  models_metadata: models/metadata
+  outputs_predictions: outputs/predictions
+  outputs_videos: outputs/videos
+
+dataset:
+  default_variant: base
+  splits:
+    - train
+    - valid
+    - test
+  bootstrap:
+    frame_step: 30
+    split_ratios:
+      train: 0.8
+      valid: 0.1
+      test: 0.1
+    valid_from_train_ratio: 0.1
+    default_resolution:
+      width: 1920
+      height: 1080
+    color_cluster_iterations: 12
+  image_suffixes:
+    - .jpg
+    - .jpeg
+    - .png
+    - .bmp
+  video_suffixes:
+    - .mp4
+    - .avi
+    - .mov
+    - .mkv
+    - .webm
+
+detection_classes:
+  0: player
+  1: goalkeeper
+  2: referee
+  3: ball
+
+inference:
+  default_sample_fps: 3
+  min_sample_fps: 1
+  max_sample_fps: 24
+  max_video_duration_seconds: 60.0
+  detection_confidence: 0.25

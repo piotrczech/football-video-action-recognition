@@ -4,9 +4,9 @@ from datetime import datetime
 from typing import Any
 
 import streamlit as st
-from ui_common import PREVIEW_MEDIA_WIDTH, ROOT, show_counts, video_mime_type
+from app.ui_common import PREVIEW_MEDIA_WIDTH, ROOT, show_counts, video_mime_type
 
-from murawa.services.saved_match_analyses import SavedMatchAnalysis, list_saved_match_analyses
+from murawa.services.runtime.saved_match_analyses import SavedMatchAnalysis, list_saved_match_analyses
 
 
 def render() -> None:
@@ -31,28 +31,35 @@ def render() -> None:
 
 
 def _show_analysis(analysis: SavedMatchAnalysis) -> None:
-    if analysis.video_path.exists():
+    preview_path = analysis.preview_path
+    download_path = analysis.download_path
+
+    if preview_path.exists():
         st.video(
-            str(analysis.video_path),
-            format=video_mime_type(analysis.video_path),
+            str(preview_path),
+            format=video_mime_type(preview_path),
             width=PREVIEW_MEDIA_WIDTH,
         )
     else:
-        st.warning("Wideo wynikowe nie jest już dostępne na dysku.")
+        st.warning("Podgląd wideo (WebM) nie jest już dostępny na dysku.")
 
     actions = st.columns([1, 2])
     with actions[0]:
-        if analysis.video_path.exists():
+        if download_path is not None and download_path.exists():
             st.download_button(
-                "Pobierz wynik",
-                data=analysis.video_path.read_bytes(),
-                file_name=analysis.video_path.name,
-                mime=video_mime_type(analysis.video_path),
-                key=f"download_{analysis.analysis_id}_{analysis.video_path.suffix}",
+                "Pobierz MP4",
+                data=download_path.read_bytes(),
+                file_name=download_path.name,
+                mime=video_mime_type(download_path),
+                key=f"download_{analysis.analysis_id}_mp4",
             )
+        else:
+            st.caption("Plik MP4 do pobrania nie jest dostępny.")
     with actions[1]:
         st.caption(f"ID analizy: `{analysis.analysis_id}`")
-        st.caption(f"Zapisano: `{analysis.video_path}`")
+        st.caption(f"Podgląd: `{preview_path}`")
+        if download_path is not None:
+            st.caption(f"Pobieranie: `{download_path}`")
 
     if analysis.summary is None:
         st.info("Metadane tej analizy nie są dostępne.")
@@ -103,7 +110,7 @@ def _analysis_row(analysis: SavedMatchAnalysis) -> dict[str, str]:
     metadata = _mapping(summary.get("video_metadata"))
     stats = _mapping(summary.get("stats"))
     return {
-        "Wideo": analysis.video_path.name,
+        "Wideo": analysis.preview_path.name,
         "Zapisane": _modified_at_value(analysis.modified_at_ns),
         "Model": _string_value(summary.get("model")),
         "Run": _string_value(summary.get("resolved_run_name")),

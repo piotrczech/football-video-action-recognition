@@ -7,6 +7,8 @@ This file defines lightweight team rules for this repository. The goal is to kee
 - Never hardcode user-specific absolute paths.
 - All paths must be provided through script arguments or config files.
 - Cluster-specific settings must stay in config/CLI values, not in reusable pipeline logic.
+- Project-wide paths and inference defaults live in `configs/project.yaml` (loaded by `murawa.settings`).
+- Training hyperparameters live in `configs/train.full.yaml` and `configs/train.quick.yaml` only.
 
 ## 2. Run Naming and Artifact Standards
 Use a predictable run identifier:
@@ -34,13 +36,10 @@ Each training run should persist at least:
 - Keep implementation decisions written in repository context files, not only in chat messages.
 
 ## 5. Scope Boundaries for Baseline Branch
-This baseline branch is intentionally limited to:
-- documentation and project conventions,
-- dependency/bootstrap metadata,
-- repository hygiene (`.gitignore`, standards).
 
-The following are out of scope here:
-- final directory scaffolding,
-- production pipeline modules,
-- model adapter implementation,
-- Streamlit feature implementation.
+The historical **baseline** branch contained only documentation and repository hygiene. The current **main** branch includes the full semester implementation (data pipeline, model adapters, inference services, Streamlit UI).
+
+Regardless of branch, keep these rules:
+- paths and inference defaults in `configs/project.yaml` via `murawa.settings`,
+- training hyperparameters in `configs/train.full.yaml` and `configs/train.quick.yaml` only,
+- no user-specific absolute paths in reusable code.

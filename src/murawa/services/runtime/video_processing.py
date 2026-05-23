@@ -6,10 +6,12 @@ from pathlib import Path
 
 import cv2
 
-MIN_SAMPLE_FPS = 1
-MAX_SAMPLE_FPS = 24
-DEFAULT_SAMPLE_FPS = 3
-MAX_VIDEO_DURATION_SECONDS = 60.0
+from murawa.settings import (
+    DEFAULT_SAMPLE_FPS,
+    MAX_SAMPLE_FPS,
+    MAX_VIDEO_DURATION_SECONDS,
+    MIN_SAMPLE_FPS,
+)
 
 ProgressCallback = Callable[[str, float, str], None]
 

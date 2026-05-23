@@ -1,9 +1,4 @@
 from murawa.data.bootstrap_variant import BootstrapConfig, BootstrapError, build_bootstrap_variant
-from murawa.data.frame_selection import (
-    FrameSelectionConfig,
-    preprocess_selected_frames,
-    select_n_frames,
-)
 from murawa.data.training_loader import (
     DataLoaderError,
     LoadedAnnotation,
@@ -21,7 +16,6 @@ __all__ = [
     "BootstrapConfig",
     "BootstrapError",
     "DataLoaderError",
-    "FrameSelectionConfig",
     "LoadedAnnotation",
     "LoadedSample",
     "LoadedSplit",
@@ -33,7 +27,5 @@ __all__ = [
     "describe_variant",
     "assemble_variant",
     "load_training_split",
-    "preprocess_selected_frames",
-    "select_n_frames",
     "summarize_variant",
 ]

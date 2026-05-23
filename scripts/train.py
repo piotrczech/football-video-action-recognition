@@ -5,13 +5,12 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
+from murawa.settings import MODELS_CHECKPOINTS, MODELS_METADATA, PROJECT_ROOT
 from murawa.data import DataLoaderError, load_training_split, summarize_variant
 from murawa.models import build_training_adapter, normalize_model_name
-from murawa.services.artifacts import (
+from murawa.services.runtime.artifacts import (
     ArtifactManifest,
     ArtifactWriteContext,
-    CKPT_DIR,
-    META_DIR,
     StandardizedArtifactCallback,
     make_run_name,
     save_config,
@@ -19,11 +18,10 @@ from murawa.services.artifacts import (
     write_json,
 )
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = PROJECT_ROOT
 PROFILE_CONFIGS = {
     "quick": ROOT / "configs" / "train.quick.yaml",
     "full": ROOT / "configs" / "train.full.yaml",
-    "rf": ROOT / "configs" / "train.rf.yaml",
 }
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
@@ -80,8 +78,8 @@ def main() -> int:
     created_at = datetime.now(timezone.utc)
     run_name = make_run_name(model_name, args.dataset_variant, created_at, tag=run_tag)
 
-    ckpt_dir = ROOT / CKPT_DIR / run_name
-    meta_dir = ROOT / META_DIR / run_name
+    ckpt_dir = ROOT / MODELS_CHECKPOINTS / run_name
+    meta_dir = ROOT / MODELS_METADATA / run_name
     if _non_empty_dir(ckpt_dir) or _non_empty_dir(meta_dir):
         logger.error(
             "Run directory already exists and is not empty: %s or %s. "
@@ -117,15 +115,6 @@ def main() -> int:
         return 1
 
     cfg_found = save_config(config_path, meta_dir / "config.yaml", model_name, args.dataset_variant)
-
-    try:
-        from murawa.data import build_dataset_preview
-        preview_created, preview_result = build_dataset_preview(
-            project_root=ROOT,
-            dataset_variant=args.dataset_variant,
-        )
-    except ImportError:
-        pass
 
     train_samples = int(train_result.get("train_samples", len(loaded_split.samples)))
     valid_samples = int(train_result.get("valid_samples", 0))

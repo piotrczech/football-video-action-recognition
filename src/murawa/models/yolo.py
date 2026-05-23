@@ -10,8 +10,25 @@ from typing import Any
 
 import yaml
 
-from murawa.data import DataLoaderError, LoadedSplit, load_training_split
-from murawa.services.artifacts import StandardizedArtifactCallback
+from murawa.data import LoadedSplit
+from murawa.models.training_common import (
+    load_train_valid_splits,
+    load_training_config_payload,
+    read_training_sections,
+)
+from murawa.models.common import (
+    IMAGE_SUFFIXES,
+    as_float,
+    as_int,
+    as_optional_int,
+    require_mapping,
+    resolve_detection_confidence,
+    infer_project_root_from_output_dir,
+    sampling_summary_to_dict,
+    seed_everything,
+    validate_image_frame_path,
+)
+from murawa.services.runtime.artifacts import StandardizedArtifactCallback
 
 
 @dataclass
@@ -36,51 +53,26 @@ class YoloAdapter:
 
         output_dir = output_dir.resolve()
         output_dir.mkdir(parents=True, exist_ok=True)
-        project_root = _resolve_project_root(output_dir=output_dir)
+        project_root = infer_project_root_from_output_dir(output_dir)
 
         cfg = _resolve_training_config(config_path)
         if amp is not None:
             cfg["amp"] = amp
         if device is not None:
             cfg["device"] = device
-        _seed_everything(cfg["seed"])
+        seed_everything(cfg["seed"])
 
-        try:
-            train_split = load_training_split(
-                project_root=project_root,
-                dataset_variant=dataset_variant,
-                split="train",
-                max_samples=cfg["max_train_samples"],
-                sampling_seed=cfg["seed"],
-            )
-        except DataLoaderError as exc:
-            raise RuntimeError(f"YOLO training data loading failed for split='train': {exc}") from exc
-
-        try:
-            valid_split = load_training_split(
-                project_root=project_root,
-                dataset_variant=dataset_variant,
-                split="valid",
-                max_samples=cfg["max_valid_samples"],
-                sampling_seed=cfg["seed"],
-            )
-            valid_split_name = "valid"
-        except DataLoaderError:
-            # Some variants may not provide an explicit validation split.
-            try:
-                valid_split = load_training_split(
-                    project_root=project_root,
-                    dataset_variant=dataset_variant,
-                    split="train",
-                    max_samples=cfg["max_valid_samples"],
-                    sampling_seed=cfg["seed"],
-                )
-            except DataLoaderError as exc:
-                raise RuntimeError(
-                    "YOLO validation split fallback failed. Neither 'valid' nor fallback 'train' "
-                    f"could be loaded: {exc}"
-                ) from exc
-            valid_split_name = "train"
+        splits = load_train_valid_splits(
+            project_root=project_root,
+            dataset_variant=dataset_variant,
+            max_train_samples=cfg["max_train_samples"],
+            max_valid_samples=cfg["max_valid_samples"],
+            sampling_seed=cfg["seed"],
+            backend_name="YOLO",
+        )
+        train_split = splits.train_split
+        valid_split = splits.valid_split
+        valid_split_name = splits.valid_split_source
 
         dataset_root = output_dir / "_ultralytics_dataset"
         data_yaml_path, class_names = _prepare_ultralytics_dataset(
@@ -147,8 +139,8 @@ class YoloAdapter:
             "train_samples": len(train_split.samples),
             "valid_samples": len(valid_split.samples),
             "valid_split_source": valid_split_name,
-            "train_sampling_summary": _sampling_summary_to_dict(train_split),
-            "valid_sampling_summary": _sampling_summary_to_dict(valid_split),
+            "train_sampling_summary": sampling_summary_to_dict(train_split),
+            "valid_sampling_summary": sampling_summary_to_dict(valid_split),
         }
 
     def predict(
@@ -186,18 +178,12 @@ class YoloAdapter:
                 f"YOLO backend failed to load checkpoint '{checkpoint_path}': {exc}"
             ) from exc
 
-        detection_confidence = _resolve_detection_confidence(checkpoint_path=checkpoint_path)
+        detection_confidence = resolve_detection_confidence(checkpoint_path=checkpoint_path, section="yolo")
         frame_batches: list[list[dict]] = []
         total_frames = len(frame_paths)
 
         for frame_number, frame_path in enumerate(frame_paths, start=1):
-            resolved_frame = frame_path.resolve()
-            if resolved_frame.suffix.lower() not in IMAGE_SUFFIXES:
-                raise ValueError(
-                    f"YOLO sampled frame requires an image file. Received: {resolved_frame}"
-                )
-            if not resolved_frame.exists() or not resolved_frame.is_file():
-                raise FileNotFoundError(f"YOLO sampled frame does not exist: {resolved_frame}")
+            resolved_frame = validate_image_frame_path(frame_path, backend_name="YOLO")
 
             try:
                 results = model.predict(
@@ -217,105 +203,39 @@ class YoloAdapter:
         return frame_batches
 
 
-IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp"}
 TRAIN_LOSS_COLUMNS = ("train/box_loss", "train/cls_loss", "train/dfl_loss")
 VAL_LOSS_COLUMNS = ("val/box_loss", "val/cls_loss", "val/dfl_loss")
 MAP50_COLUMNS = ("metrics/mAP50(B)", "metrics/mAP50-95(B)")
+PRECISION_COLUMN = "metrics/precision(B)"
+RECALL_COLUMN = "metrics/recall(B)"
+MAP5095_COLUMN = "metrics/mAP50-95(B)"
 
 
 def _resolve_training_config(config_path: Path | None) -> dict[str, Any]:
-    if config_path is None:
-        raise ValueError("YoloAdapter.train requires config_path for explicit training settings.")
-
-    cfg_path = config_path.resolve()
-    if not cfg_path.exists() or not cfg_path.is_file():
-        raise FileNotFoundError(f"Training config file does not exist: {cfg_path}")
-
-    try:
-        payload = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
-    except Exception as exc:
-        raise RuntimeError(f"Could not parse training config '{cfg_path}': {exc}") from exc
-    if not isinstance(payload, dict):
-        raise RuntimeError(f"Training config '{cfg_path}' must contain a mapping at top-level.")
-
-    training_cfg = _require_mapping(payload.get("training"), key="training", config_path=cfg_path)
-    runtime_cfg = _require_mapping(payload.get("runtime"), key="runtime", config_path=cfg_path)
-    yolo_cfg = _require_mapping(payload.get("yolo"), key="yolo", config_path=cfg_path)
+    payload, cfg_path = load_training_config_payload(config_path, backend_name="YoloAdapter")
+    training_cfg, runtime_cfg = read_training_sections(payload, cfg_path)
+    yolo_cfg = require_mapping(payload.get("yolo"), key="yolo", config_path=cfg_path)
 
     return {
-        "epochs": _as_int(yolo_cfg.get("epochs", training_cfg.get("epochs", 1)), key="epochs", minimum=1),
-        "batch_size": _as_int(
+        "epochs": as_int(yolo_cfg.get("epochs", training_cfg.get("epochs", 1)), key="epochs", minimum=1),
+        "batch_size": as_int(
             yolo_cfg.get("batch_size", training_cfg.get("batch_size", 2)),
             key="batch_size",
             minimum=1,
         ),
-        "learning_rate": _as_float(
+        "learning_rate": as_float(
             yolo_cfg.get("learning_rate", training_cfg.get("learning_rate", 0.001)),
             key="learning_rate",
             minimum=0.0,
         ),
         "amp": _as_bool(yolo_cfg.get("amp", True), key="amp"),
-        "image_size": _as_int(yolo_cfg.get("image_size", 320), key="image_size", minimum=64),
+        "image_size": as_int(yolo_cfg.get("image_size", 320), key="image_size", minimum=64),
         "device": _as_optional_device(yolo_cfg.get("device")),
-        "max_train_samples": _as_optional_int(yolo_cfg.get("max_train_samples", None), "max_train_samples"),
-        "max_valid_samples": _as_optional_int(yolo_cfg.get("max_valid_samples", None), "max_valid_samples"),
-        "seed": _as_int(runtime_cfg.get("seed", 42), key="seed", minimum=0),
+        "max_train_samples": as_optional_int(yolo_cfg.get("max_train_samples", None), "max_train_samples"),
+        "max_valid_samples": as_optional_int(yolo_cfg.get("max_valid_samples", None), "max_valid_samples"),
+        "seed": as_int(runtime_cfg.get("seed", 42), key="seed", minimum=0),
         "weights": str(yolo_cfg.get("weights", "yolov8n.pt")),
     }
-
-
-def _resolve_project_root(output_dir: Path) -> Path:
-    # Expected pattern: <project_root>/models/checkpoints/<run_name>
-    if len(output_dir.parents) >= 3:
-        return output_dir.parents[2]
-    return Path(__file__).resolve().parents[3]
-
-
-def _resolve_detection_confidence(checkpoint_path: Path) -> float:
-    default_confidence = 0.25
-    run_name = checkpoint_path.parent.name
-    project_root = checkpoint_path.parents[3]
-    config_path = project_root / "models" / "metadata" / run_name / "config.yaml"
-    if not config_path.exists() or not config_path.is_file():
-        return default_confidence
-
-    try:
-        payload = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-    except Exception as exc:
-        raise RuntimeError(f"Could not parse prediction config '{config_path}': {exc}") from exc
-
-    if not isinstance(payload, dict):
-        raise RuntimeError(f"Saved training config '{config_path}' must contain a mapping at top-level.")
-
-    yolo_cfg = payload.get("yolo")
-    if yolo_cfg is None:
-        return default_confidence
-    if not isinstance(yolo_cfg, dict):
-        raise RuntimeError(f"Saved training config '{config_path}' has invalid 'yolo' section.")
-
-    raw = yolo_cfg.get("detection_confidence", default_confidence)
-    confidence = _as_float(raw, key="detection_confidence", minimum=0.0)
-    if confidence > 1.0:
-        raise ValueError(
-            f"Config value 'detection_confidence' must be <= 1.0, got: {confidence} (run={run_name})."
-        )
-    return confidence
-
-
-def _seed_everything(seed: int) -> None:
-    random.seed(seed)
-    try:
-        import numpy as np  # type: ignore
-
-        np.random.seed(seed)
-    except Exception:
-        pass
-    try:
-        import torch
-
-        torch.manual_seed(seed)
-    except Exception:
-        pass
 
 
 def _prepare_ultralytics_dataset(
@@ -422,7 +342,14 @@ def _extract_training_metrics(results: Any, fallback_epochs: int) -> dict[str, A
 
     loss_history: list[float] = []
     val_history: list[float] = []
+    map50_history: list[float] = []
+    map5095_history: list[float] = []
+    precision_history: list[float] = []
+    recall_history: list[float] = []
     map50_last: float | None = None
+    map5095_last: float | None = None
+    precision_last: float | None = None
+    recall_last: float | None = None
 
     with results_csv.open("r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
@@ -437,20 +364,55 @@ def _extract_training_metrics(results: Any, fallback_epochs: int) -> dict[str, A
             if val_loss > 0:
                 val_history.append(val_loss)
 
-            for col in MAP50_COLUMNS:
-                map50_value = _read_float(row.get(col))
-                if map50_value is not None:
-                    map50_last = map50_value
-                    break
+            map50_value = _read_float(row.get("metrics/mAP50(B)"))
+            if map50_value is not None:
+                map50_history.append(map50_value)
+                map50_last = map50_value
+            else:
+                for col in MAP50_COLUMNS:
+                    fallback_map50 = _read_float(row.get(col))
+                    if fallback_map50 is not None:
+                        map50_last = fallback_map50
+                        break
+
+            map5095_value = _read_float(row.get(MAP5095_COLUMN))
+            if map5095_value is not None:
+                map5095_history.append(map5095_value)
+                map5095_last = map5095_value
+
+            precision_value = _read_float(row.get(PRECISION_COLUMN))
+            if precision_value is not None:
+                precision_history.append(precision_value)
+                precision_last = precision_value
+
+            recall_value = _read_float(row.get(RECALL_COLUMN))
+            if recall_value is not None:
+                recall_history.append(recall_value)
+                recall_last = recall_value
 
     if loss_history:
         metrics["epochs"] = len(loss_history)
         metrics["loss_history"] = loss_history
         metrics["loss"] = loss_history[-1]
     if val_history:
+        metrics["val_loss_history"] = val_history
         metrics["val_loss"] = val_history[-1]
+    if map50_history:
+        metrics["map50_history"] = map50_history
     if map50_last is not None:
         metrics["mAP50"] = map50_last
+    if map5095_history:
+        metrics["map5095_history"] = map5095_history
+    if map5095_last is not None:
+        metrics["mAP5095"] = map5095_last
+    if precision_history:
+        metrics["precision_history"] = precision_history
+    if precision_last is not None:
+        metrics["precision"] = precision_last
+    if recall_history:
+        metrics["recall_history"] = recall_history
+    if recall_last is not None:
+        metrics["recall"] = recall_last
     return metrics
 
 
@@ -532,29 +494,6 @@ def _patch_ultralytics_if_polars_missing() -> None:
     base_trainer._murawa_polars_patch = True
 
 
-def _require_mapping(value: Any, *, key: str, config_path: Path) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise RuntimeError(f"Training config '{config_path}' must include a mapping section '{key}'.")
-    return value
-
-
-def _as_int(value: Any, *, key: str, minimum: int) -> int:
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"Config value '{key}' must be an integer, got: {value!r}") from exc
-    if parsed < minimum:
-        raise ValueError(f"Config value '{key}' must be >= {minimum}, got: {parsed}")
-    return parsed
-
-
-def _as_optional_int(value: Any, key: str) -> int | None:
-    if value is None:
-        return None
-    parsed = _as_int(value, key=key, minimum=1)
-    return parsed
-
-
 def _as_optional_device(value: Any) -> str | None:
     if value is None:
         return None
@@ -566,16 +505,6 @@ def _as_bool(value: Any, *, key: str) -> bool:
     if isinstance(value, bool):
         return value
     raise ValueError(f"Config value '{key}' must be a boolean, got: {value!r}")
-
-
-def _as_float(value: Any, *, key: str, minimum: float) -> float:
-    try:
-        parsed = float(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"Config value '{key}' must be numeric, got: {value!r}") from exc
-    if parsed < minimum:
-        raise ValueError(f"Config value '{key}' must be >= {minimum}, got: {parsed}")
-    return parsed
 
 
 def _clip_unit_interval(value: float) -> float:
@@ -593,19 +522,3 @@ def _read_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
-
-
-def _sampling_summary_to_dict(split: LoadedSplit) -> dict[str, Any]:
-    if split.sampling_summary is None:
-        return {}
-    summary = split.sampling_summary
-    return {
-        "strategy": summary.strategy,
-        "seed": summary.seed,
-        "requested_max_samples": summary.requested_max_samples,
-        "original_sample_count": summary.original_sample_count,
-        "selected_sample_count": summary.selected_sample_count,
-        "source_counts": summary.source_counts,
-        "density_counts": summary.density_counts,
-        "ball_presence_counts": summary.ball_presence_counts,
-    }

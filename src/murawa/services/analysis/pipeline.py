@@ -1,8 +1,8 @@
-"""Backward-compatible re-export. Prefer ``murawa.services.analysis.pipeline``."""
-
-from murawa.services.analysis.pipeline import (
+from murawa.services.analysis.frame_analysis import (
     analyze_frame,
     analyze_frame_run,
+)
+from murawa.services.analysis.match_analysis import (
     analyze_match,
     analyze_match_run,
 )

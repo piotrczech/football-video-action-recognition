@@ -6,7 +6,7 @@ from typing import Any
 
 import numpy as np
 
-from murawa.vision.team_assignment_helpers import (
+from murawa.services.vision.team_assignment_helpers import (
     MIN_PLAYER_BOX_HEIGHT_PX,
     MIN_PLAYER_BOX_WIDTH_PX,
     MIN_PLAYER_CONFIDENCE,

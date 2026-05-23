@@ -13,6 +13,17 @@ The final system should:
 
 The experimental track compares YOLO and RF-DETR, including data-variant impact analysis.
 
+## Project structure
+
+See [`context/ARCHITECTURE.md`](context/ARCHITECTURE.md) for the module map, config split, and data flow.
+
+Key directories:
+- `configs/project.yaml` — paths, classes, inference defaults
+- `configs/train.*.yaml` — training profiles only
+- `src/murawa/` — Python package (`data`, `models`, `services`)
+- `app/` — Streamlit UI (5 views)
+- `scripts/` — CLI entry points
+
 ## Project setup
 
 ### Install
@@ -32,9 +43,11 @@ pyenv activate football
 pip install --upgrade pip
 pip install -r requirements.txt
 
-# install project in editable mode (enables package imports from scripts/)
+# install project in editable mode (required for imports from scripts/ and app/)
 pip install -e .
 ```
+
+Local development environment used by the team: `pyenv activate ml`.
 
 ### Prepare raw data
 
@@ -168,7 +181,9 @@ Outputs are written to:
 - `outputs/predictions/<run_name>/<analysis_id>/...` for match-video summaries and detection payloads
 - `outputs/videos/*.webm` for browser-ready match-analysis videos generated from uploaded or CLI video clips
 
-### Use internet APP by streamlit GUI
+### Use Streamlit GUI
+
+Five views are available: frame analysis, match analysis, saved analyses browser, dataset overview, and model metrics.
 
 ```bash
 streamlit run app/streamlit_app.py

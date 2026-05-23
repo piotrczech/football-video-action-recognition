@@ -12,7 +12,7 @@ from murawa.data.bootstrap_variant import (
     SUPPORTED_VARIANTS,
     build_bootstrap_variant,
 )
-from murawa.settings import PROJECT_ROOT
+from murawa.settings import DEFAULT_FRAME_STEP, PROJECT_ROOT
 
 LOGGER = logging.getLogger("bootstrap-base-variant")
 
@@ -34,7 +34,7 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help=argparse.SUPPRESS,
     )
-    parser.add_argument("--frame-step", type=int, default=30)
+    parser.add_argument("--frame-step", type=int, default=DEFAULT_FRAME_STEP)
     parser.add_argument("--force", action="store_true", help="Overwrite existing output variant(s).")
 
     args = parser.parse_args()

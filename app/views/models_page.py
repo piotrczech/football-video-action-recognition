@@ -2,36 +2,31 @@ from __future__ import annotations
 
 import streamlit as st
 
-from model_analysis.chart_layout import render_chart_grid
-from model_analysis.charts import (
+from app.model_analysis.chart_layout import render_chart_grid
+from app.model_analysis.charts import (
     as_float_list,
     build_loss_chart,
     build_precision_recall_chart,
     build_val_map50_chart,
     build_val_map5095_chart,
 )
-from model_analysis.glossary import METRIC_DEFINITIONS, glossary_rows
-from model_analysis.presenters import build_kpi_items, format_run_context
+from app.model_analysis.glossary import METRIC_DEFINITIONS, glossary_rows
+from app.model_analysis.presenters import build_kpi_items, format_run_context
 from murawa.services import load_run_metrics
-from ui_common import ROOT, format_run_label, trained_runs
+from app.ui_common import ROOT, render_run_selector
 
 
 def render() -> None:
     st.subheader("Analiza modeli")
-    runs = trained_runs()
-    if not runs:
-        st.info(
+    selected_run = render_run_selector(
+        key="models_run_name",
+        empty_message=(
             "Brak gotowych runów treningowych. Najpierw uruchom trening, np.: "
             "`python scripts/train.py --model yolo --dataset-variant base --profile quick`"
-        )
-        return
-
-    selected_run = st.selectbox(
-        "Wytrenowany model",
-        options=runs,
-        format_func=format_run_label,
-        key="models_run_name",
+        ),
     )
+    if selected_run is None:
+        return
 
     try:
         payload = load_run_metrics(ROOT, selected_run.run_name)

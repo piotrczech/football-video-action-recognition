@@ -21,7 +21,7 @@ flowchart LR
 
 | File | Purpose |
 |------|---------|
-| [`configs/project.yaml`](../configs/project.yaml) | Project paths, dataset splits, detection classes, inference defaults |
+| [`configs/project.yaml`](../configs/project.yaml) | Project paths, dataset splits, bootstrap params, detection classes, inference defaults |
 | [`configs/train.full.yaml`](../configs/train.full.yaml) | Full training profile (epochs, batch, backend sections) |
 | [`configs/train.quick.yaml`](../configs/train.quick.yaml) | Quick local/dev training profile |
 | [`src/murawa/settings.py`](../src/murawa/settings.py) | Loads `project.yaml` and exposes constants (`PROJECT_ROOT`, `DATA_READY`, …) |
@@ -32,19 +32,37 @@ Training scripts read **train profiles only**. Application code and pipeline rea
 
 ```
 src/murawa/
-  settings.py              # project-wide constants
+  settings.py              # project-wide constants from project.yaml
   data/                    # raw -> ready dataset pipeline
-  models/                  # YOLO / RF-DETR adapters + common helpers
+  models/
+    training_common.py     # shared train/valid split loading + YAML parsing
+    yolo.py                # YOLO adapter
+    rfdetr.py              # RF-DETR adapter (thin entry)
+    rfdetr_training.py     # RF-DETR dataset prep + metrics
+    rfdetr_inference.py    # RF-DETR prediction helpers
+    rfdetr_support.py      # RF-DETR shared constants/helpers
+    common.py              # checkpoint config + parsing helpers
   services/
-    analysis/              # inference orchestrator (pipeline.py)
-    rendering/             # OpenCV overlays and preview assets
-    vision/                # tracking and team assignment
+    analysis/
+      pipeline.py          # public re-export (analyze_frame*, analyze_match*)
+      frame_analysis.py    # single-frame inference flow
+      match_analysis.py    # match/video inference flow
+      pipeline_helpers.py  # shared payload/builders/progress
+      clip_teams.py        # clip-level team stabilization
+    rendering/
+      overlay.py           # public overlay API
+      overlay_draw.py      # bbox/legend drawing
+      overlay_video.py     # annotated video writer
+    vision/
+      tracking.py          # ByteTrack + smoothing
+      tracking_ball.py     # primary ball selection
+      team_assignment*.py  # per-frame team colors
     runtime/               # artifacts, video I/O, saved analyses
 ```
 
-### `services/analysis/pipeline.py`
+### Analysis pipeline
 
-Single orchestrator for frame and match analysis. It is intentionally kept as one readable flow with section comments:
+Frame and match analysis are split for readability; import the public API from `murawa.services.analysis.pipeline`:
 
 1. Resolve run and validate input
 2. Frame / video extraction
@@ -54,7 +72,7 @@ Single orchestrator for frame and match analysis. It is intentionally kept as on
 6. Clip-level team stabilization
 7. Render outputs and persist artifacts
 
-Helper logic lives in `clip_teams.py`, `rendering/overlay.py`, and `vision/*`.
+Helper logic lives in `pipeline_helpers.py`, `clip_teams.py`, `rendering/overlay*.py`, and `vision/*`.
 
 ## Streamlit application
 
@@ -68,7 +86,9 @@ Entry point: [`app/streamlit_app.py`](../app/streamlit_app.py)
 | Przegląd danych | `views/data_page.py` | `load_training_split`, `summarize_variant` |
 | Analiza modeli | `views/models_page.py` | `load_run_metrics` from training metadata |
 
-Shared UI helpers: `app/ui_common.py`, result rendering: `app/result_view.py`.
+Shared UI helpers: [`app/ui_common.py`](../app/ui_common.py) (`render_run_selector`, upload helpers), result rendering: [`app/result_view.py`](../app/result_view.py).
+
+Imports inside `app/` use the `app.*` package prefix (run with `streamlit run app/streamlit_app.py` from repo root).
 
 ## CLI scripts
 

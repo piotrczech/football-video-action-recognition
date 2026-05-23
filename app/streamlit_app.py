@@ -1,10 +1,20 @@
+import sys
+from pathlib import Path
+
 import streamlit as st
 
-from views.analyses_page import render as render_analyses_page
-from views.data_page import render as render_data_page
-from views.frame_page import render as render_frame_page
-from views.match_page import render as render_match_page
-from views.models_page import render as render_models_page
+# Streamlit adds `app/` to sys.path; ensure repo root and `src/` are visible.
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+for path in (_PROJECT_ROOT, _PROJECT_ROOT / "src"):
+    value = str(path)
+    if value not in sys.path:
+        sys.path.insert(0, value)
+
+from app.views.analyses_page import render as render_analyses_page
+from app.views.data_page import render as render_data_page
+from app.views.frame_page import render as render_frame_page
+from app.views.match_page import render as render_match_page
+from app.views.models_page import render as render_models_page
 
 
 def main() -> None:

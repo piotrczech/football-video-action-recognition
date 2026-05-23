@@ -7,7 +7,12 @@ from typing import Any
 import yaml
 
 from murawa.data import LoadedSplit
-from murawa.settings import DEFAULT_DETECTION_CONFIDENCE, IMAGE_SUFFIXES, META_DIR
+from murawa.settings import (
+    DEFAULT_DETECTION_CONFIDENCE,
+    IMAGE_SUFFIXES,
+    MODELS_METADATA,
+    infer_project_root_from_output_dir,
+)
 
 __all__ = [
     "IMAGE_SUFFIXES",
@@ -15,27 +20,20 @@ __all__ = [
     "as_float",
     "as_int",
     "as_optional_int",
+    "infer_project_root_from_output_dir",
     "load_checkpoint_config",
     "require_mapping",
     "resolve_detection_confidence",
-    "resolve_project_root",
     "sampling_summary_to_dict",
     "seed_everything",
     "validate_image_frame_path",
 ]
 
 
-def resolve_project_root(output_dir: Path) -> Path:
-    # Expected pattern: <project_root>/models/checkpoints/<run_name>
-    if len(output_dir.parents) >= 3:
-        return output_dir.parents[2]
-    return Path(__file__).resolve().parents[3]
-
-
 def load_checkpoint_config(checkpoint_path: Path) -> dict[str, Any]:
     run_name = checkpoint_path.parent.name
-    project_root = resolve_project_root(checkpoint_path.parent)
-    config_path = project_root / META_DIR / run_name / "config.yaml"
+    project_root = infer_project_root_from_output_dir(checkpoint_path.parent)
+    config_path = project_root / MODELS_METADATA / run_name / "config.yaml"
     if not config_path.is_file():
         return {}
 

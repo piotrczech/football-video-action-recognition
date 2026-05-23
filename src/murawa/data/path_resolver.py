@@ -3,12 +3,9 @@ from pathlib import Path
 from murawa.settings import (
     DEFAULT_DATASET_VARIANT,
     IMAGE_SUFFIXES,
-    OUTPUTS_PREDICTIONS,
     VIDEO_SUFFIXES,
     resolve_variant_dir,
 )
-
-PREDICTIONS_ROOT = OUTPUTS_PREDICTIONS
 
 
 def training_path(project_root: Path, dataset_variant: str) -> Path:

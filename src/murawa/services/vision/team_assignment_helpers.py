@@ -6,6 +6,7 @@ from typing import Any
 import cv2
 import numpy as np
 
+from murawa.settings import COLOR_CLUSTER_ITERATIONS
 
 MIN_PLAYER_BOX_WIDTH_PX = 15
 MIN_PLAYER_BOX_HEIGHT_PX = 35
@@ -23,10 +24,8 @@ MIN_JERSEY_VALUE = 45
 MIN_FALLBACK_VALUE = 35
 MIN_INFORMATIVE_PIXELS = 8
 
-COLOR_CLUSTER_ITERATIONS = 12
 
-
-def normalize_class_name(value: Any) -> str:
+def normalize_class_name(value: object) -> str:
     return str(value or "").strip().lower().replace("-", "_")
 
 
@@ -115,7 +114,7 @@ def cluster_players_by_jersey_color(
     colors_bgr = np.stack([color for _, color in players_with_jersey_color]).astype(np.float32)
     colors_lab = _bgr_array_to_lab(colors_bgr)
 
-    centers, color_groups = _cluster_two_color_groups(colors_lab)
+    centers, color_groups = cluster_two_groups(colors_lab)
     counts = Counter(color_groups.tolist())
     if len(counts) < 2:
         return [(det_idx, "unknown", 0.0) for det_idx in indexes]
@@ -160,7 +159,12 @@ def _bgr_array_to_lab(colors_bgr: np.ndarray) -> np.ndarray:
     return lab.reshape(-1, 3).astype(np.float32)
 
 
-def _cluster_two_color_groups(points: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def cluster_two_groups(
+    points: np.ndarray,
+    *,
+    iterations: int | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    cluster_iterations = iterations if iterations is not None else COLOR_CLUSTER_ITERATIONS
     if len(points) < 2:
         centers = np.vstack([points[0], points[0]])
         color_groups = np.zeros(len(points), dtype=np.int32)
@@ -171,7 +175,7 @@ def _cluster_two_color_groups(points: np.ndarray) -> tuple[np.ndarray, np.ndarra
     centers = np.stack([points[first], points[second]]).astype(np.float32)
 
     color_groups = np.zeros(len(points), dtype=np.int32)
-    for _ in range(COLOR_CLUSTER_ITERATIONS):
+    for _ in range(cluster_iterations):
         distance_to_centers = np.linalg.norm(points[:, None, :] - centers[None, :, :], axis=2)
         color_groups = np.argmin(distance_to_centers, axis=1).astype(np.int32)
 

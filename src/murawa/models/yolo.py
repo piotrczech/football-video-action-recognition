@@ -10,7 +10,12 @@ from typing import Any
 
 import yaml
 
-from murawa.data import DataLoaderError, LoadedSplit, load_training_split
+from murawa.data import LoadedSplit
+from murawa.models.training_common import (
+    load_train_valid_splits,
+    load_training_config_payload,
+    read_training_sections,
+)
 from murawa.models.common import (
     IMAGE_SUFFIXES,
     as_float,
@@ -18,7 +23,7 @@ from murawa.models.common import (
     as_optional_int,
     require_mapping,
     resolve_detection_confidence,
-    resolve_project_root,
+    infer_project_root_from_output_dir,
     sampling_summary_to_dict,
     seed_everything,
     validate_image_frame_path,
@@ -48,7 +53,7 @@ class YoloAdapter:
 
         output_dir = output_dir.resolve()
         output_dir.mkdir(parents=True, exist_ok=True)
-        project_root = resolve_project_root(output_dir=output_dir)
+        project_root = infer_project_root_from_output_dir(output_dir)
 
         cfg = _resolve_training_config(config_path)
         if amp is not None:
@@ -57,42 +62,17 @@ class YoloAdapter:
             cfg["device"] = device
         seed_everything(cfg["seed"])
 
-        try:
-            train_split = load_training_split(
-                project_root=project_root,
-                dataset_variant=dataset_variant,
-                split="train",
-                max_samples=cfg["max_train_samples"],
-                sampling_seed=cfg["seed"],
-            )
-        except DataLoaderError as exc:
-            raise RuntimeError(f"YOLO training data loading failed for split='train': {exc}") from exc
-
-        try:
-            valid_split = load_training_split(
-                project_root=project_root,
-                dataset_variant=dataset_variant,
-                split="valid",
-                max_samples=cfg["max_valid_samples"],
-                sampling_seed=cfg["seed"],
-            )
-            valid_split_name = "valid"
-        except DataLoaderError:
-            # Some variants may not provide an explicit validation split.
-            try:
-                valid_split = load_training_split(
-                    project_root=project_root,
-                    dataset_variant=dataset_variant,
-                    split="train",
-                    max_samples=cfg["max_valid_samples"],
-                    sampling_seed=cfg["seed"],
-                )
-            except DataLoaderError as exc:
-                raise RuntimeError(
-                    "YOLO validation split fallback failed. Neither 'valid' nor fallback 'train' "
-                    f"could be loaded: {exc}"
-                ) from exc
-            valid_split_name = "train"
+        splits = load_train_valid_splits(
+            project_root=project_root,
+            dataset_variant=dataset_variant,
+            max_train_samples=cfg["max_train_samples"],
+            max_valid_samples=cfg["max_valid_samples"],
+            sampling_seed=cfg["seed"],
+            backend_name="YOLO",
+        )
+        train_split = splits.train_split
+        valid_split = splits.valid_split
+        valid_split_name = splits.valid_split_source
 
         dataset_root = output_dir / "_ultralytics_dataset"
         data_yaml_path, class_names = _prepare_ultralytics_dataset(
@@ -232,22 +212,8 @@ MAP5095_COLUMN = "metrics/mAP50-95(B)"
 
 
 def _resolve_training_config(config_path: Path | None) -> dict[str, Any]:
-    if config_path is None:
-        raise ValueError("YoloAdapter.train requires config_path for explicit training settings.")
-
-    cfg_path = config_path.resolve()
-    if not cfg_path.exists() or not cfg_path.is_file():
-        raise FileNotFoundError(f"Training config file does not exist: {cfg_path}")
-
-    try:
-        payload = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
-    except Exception as exc:
-        raise RuntimeError(f"Could not parse training config '{cfg_path}': {exc}") from exc
-    if not isinstance(payload, dict):
-        raise RuntimeError(f"Training config '{cfg_path}' must contain a mapping at top-level.")
-
-    training_cfg = require_mapping(payload.get("training"), key="training", config_path=cfg_path)
-    runtime_cfg = require_mapping(payload.get("runtime"), key="runtime", config_path=cfg_path)
+    payload, cfg_path = load_training_config_payload(config_path, backend_name="YoloAdapter")
+    training_cfg, runtime_cfg = read_training_sections(payload, cfg_path)
     yolo_cfg = require_mapping(payload.get("yolo"), key="yolo", config_path=cfg_path)
 
     return {

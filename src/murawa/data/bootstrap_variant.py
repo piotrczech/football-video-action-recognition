@@ -9,8 +9,21 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
+from murawa.settings import (
+    BALL_CATEGORY_ID,
+    BOOTSTRAP_SPLIT_RATIOS,
+    BOOTSTRAP_VALID_FROM_TRAIN_RATIO,
+    CATEGORY_ID_TO_NAME,
+    CATEGORY_NAME_TO_ID,
+    DATA_RAW,
+    DATA_READY,
+    DEFAULT_FRAME_HEIGHT,
+    DEFAULT_FRAME_STEP,
+    DEFAULT_FRAME_WIDTH,
+    SPLITS,
+)
+
 LOGGER = logging.getLogger("bootstrap-base-variant")
-SPLITS = ("train", "valid", "test")
 SUPPORTED_VARIANTS = ("base", "extended", "extended-only-train")
 
 SOCCERNET_SPLIT_ALIASES: dict[str, tuple[str, ...]] = {
@@ -30,11 +43,6 @@ VARIANT_BALL_EXTRA_POLICY: dict[str, dict[str, bool]] = {
     "extended-only-train": {"train": True, "valid": True, "test": False},
 }
 
-CATEGORY_ID_TO_NAME = {0: "player", 1: "goalkeeper", 2: "referee", 3: "ball"}
-CATEGORY_NAME_TO_ID = {name: idx for idx, name in CATEGORY_ID_TO_NAME.items()}
-BALL_CATEGORY_ID = CATEGORY_NAME_TO_ID["ball"]
-
-
 class BootstrapError(RuntimeError):
     pass
 
@@ -42,7 +50,7 @@ class BootstrapError(RuntimeError):
 @dataclass(frozen=True)
 class BootstrapConfig:
     output_variant: str = "base"
-    frame_step: int = 30
+    frame_step: int = DEFAULT_FRAME_STEP
     force: bool = False
 
 
@@ -77,8 +85,8 @@ class CandidateSample:
 def build_bootstrap_variant(project_root: Path, config: BootstrapConfig) -> BootstrapBuildResult:
     _validate_config(config)
 
-    raw_soccernet_root = project_root / "data" / "raw" / "soccernet"
-    raw_ball_extra_root = project_root / "data" / "raw" / "ball-extra"
+    raw_soccernet_root = project_root / DATA_RAW / "soccernet"
+    raw_ball_extra_root = project_root / DATA_RAW / "ball-extra"
 
     soccernet_by_split, used_fallback = collect_soccernet_samples_by_split(
         root=raw_soccernet_root,
@@ -105,7 +113,7 @@ def build_bootstrap_variant(project_root: Path, config: BootstrapConfig) -> Boot
         if not split_to_samples[split]:
             raise BootstrapError(f"Split '{split}' is empty for variant '{config.output_variant}'.")
 
-    variant_dir = project_root / "data" / "ready" / config.output_variant
+    variant_dir = project_root / DATA_READY / config.output_variant
     prepare_output_root(variant_dir=variant_dir, force=config.force)
     write_variant(variant_dir=variant_dir, split_to_samples=split_to_samples)
     write_summary(
@@ -190,7 +198,7 @@ def split_train_valid_soccernet_samples(
             "to derive a validation split."
         )
 
-    valid_count = int(total * 0.1)
+    valid_count = int(total * BOOTSTRAP_VALID_FROM_TRAIN_RATIO)
     if valid_count == 0:
         valid_count = 1
 
@@ -209,8 +217,10 @@ def split_train_only_soccernet_samples(train_samples: list[CandidateSample]) -> 
             "SoccerNet fallback requires at least 3 samples in 'train' to create train/valid/test splits."
         )
 
-    train_count = int(total * 0.8)
-    valid_count = int(total * 0.1)
+    train_ratio = BOOTSTRAP_SPLIT_RATIOS["train"]
+    valid_ratio = BOOTSTRAP_SPLIT_RATIOS["valid"]
+    train_count = int(total * train_ratio)
+    valid_count = int(total * valid_ratio)
     test_count = total - train_count - valid_count
 
     if valid_count == 0:
@@ -563,7 +573,7 @@ def parse_tracklet_classes(gameinfo_path: Path) -> dict[int, int]:
 
 
 def parse_seq_size(seqinfo_path: Path) -> tuple[int, int]:
-    width, height = 1920, 1080
+    width, height = DEFAULT_FRAME_WIDTH, DEFAULT_FRAME_HEIGHT
     if not seqinfo_path.exists():
         return width, height
 

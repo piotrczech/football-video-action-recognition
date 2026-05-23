@@ -5,8 +5,8 @@ import json
 import logging
 from pathlib import Path
 
-from murawa.settings import PROJECT_ROOT
-from murawa.services.pipeline import analyze_frame, analyze_match
+from murawa.settings import DEFAULT_SAMPLE_FPS, MIN_SAMPLE_FPS, MAX_SAMPLE_FPS, PROJECT_ROOT
+from murawa.services.analysis.pipeline import analyze_frame, analyze_match
 
 
 ROOT = PROJECT_ROOT
@@ -27,8 +27,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--sample-fps",
         type=int,
-        default=3,
-        help="Frame sampling rate for mode=match. Expected range: 1-24.",
+        default=DEFAULT_SAMPLE_FPS,
+        help=f"Frame sampling rate for mode=match. Expected range: {MIN_SAMPLE_FPS}-{MAX_SAMPLE_FPS}.",
     )
     return p.parse_args()
 

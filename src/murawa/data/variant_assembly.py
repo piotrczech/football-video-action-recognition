@@ -22,6 +22,8 @@ from murawa.data.variant_image_transforms import (
 )
 
 from murawa.data.coco_io import load_coco, save_coco
+from murawa.settings import DEFAULT_FRAME_STEP, infer_project_root_from_ready_root
+
 SUPPORTED_VARIANTS = (
     *BOOTSTRAP_VARIANTS,
     "extended-transformed",
@@ -36,7 +38,7 @@ class VariantAssemblyConfig:
     variant_name: str
     include_ball_extra: bool = False
     enable_transforms: bool = False
-    frame_step: int = 30
+    frame_step: int = DEFAULT_FRAME_STEP
     force: bool = False
 
 
@@ -50,7 +52,7 @@ class VariantSpec:
 def assemble_variant(config: VariantAssemblyConfig) -> Path:
     """Build one named variant in data/ready and write concise metadata."""
     spec = _resolve_variant_spec(config.variant_name)
-    project_root = _resolve_project_root(config.final_root)
+    project_root = infer_project_root_from_ready_root(config.final_root)
 
     if spec.transforms_enabled:
         source_variant_dir = _ensure_source_variant(
@@ -167,10 +169,6 @@ def _resolve_variant_spec(variant_name: str) -> VariantSpec:
         f"Expected one of: {', '.join(SUPPORTED_VARIANTS)}"
     )
 
-
-def _resolve_project_root(final_root: Path) -> Path:
-    final_root = Path(final_root).resolve()
-    return final_root.parents[1]
 
 def _to_project_relative_path(path: Path, project_root: Path) -> str:
     path = Path(path).resolve()

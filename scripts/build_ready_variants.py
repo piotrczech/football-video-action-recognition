@@ -13,7 +13,7 @@ from murawa.data.variant_assembly import (
     assemble_variant,
     describe_variant,
 )
-from murawa.settings import DATA_RAW, DATA_READY, PROJECT_ROOT
+from murawa.settings import DATA_RAW, DATA_READY, DEFAULT_FRAME_STEP, PROJECT_ROOT
 
 LOGGER = logging.getLogger("build-ready-variants")
 
@@ -40,7 +40,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--frame-step",
         type=int,
-        default=30,
+        default=DEFAULT_FRAME_STEP,
         help="Reference frame_step passed to bootstrap source variants.",
     )
     parser.add_argument(

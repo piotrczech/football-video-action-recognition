@@ -36,13 +36,10 @@ Each training run should persist at least:
 - Keep implementation decisions written in repository context files, not only in chat messages.
 
 ## 5. Scope Boundaries for Baseline Branch
-This baseline branch is intentionally limited to:
-- documentation and project conventions,
-- dependency/bootstrap metadata,
-- repository hygiene (`.gitignore`, standards).
 
-The following are out of scope here:
-- final directory scaffolding,
-- production pipeline modules,
-- model adapter implementation,
-- Streamlit feature implementation.
+The historical **baseline** branch contained only documentation and repository hygiene. The current **main** branch includes the full semester implementation (data pipeline, model adapters, inference services, Streamlit UI).
+
+Regardless of branch, keep these rules:
+- paths and inference defaults in `configs/project.yaml` via `murawa.settings`,
+- training hyperparameters in `configs/train.full.yaml` and `configs/train.quick.yaml` only,
+- no user-specific absolute paths in reusable code.

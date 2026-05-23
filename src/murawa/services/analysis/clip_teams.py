@@ -6,7 +6,7 @@ import cv2
 import numpy as np
 
 from murawa.services.vision.team_assignment import PLAYER_CLASSES
-from murawa.services.vision.team_assignment_helpers import normalize_class_name
+from murawa.services.vision.team_assignment_helpers import cluster_two_groups, normalize_class_name
 
 
 def stabilize_match_team_assignments_with_clip_prototypes(
@@ -63,7 +63,7 @@ def stabilize_match_team_assignments_with_clip_prototypes(
     ).astype(np.float32)
     colors_lab = bgr_colors_to_lab(colors_bgr)
 
-    centers_lab, groups = cluster_two_clip_color_groups(colors_lab)
+    centers_lab, groups = cluster_two_groups(colors_lab)
     group_counts = Counter(int(group) for group in groups.tolist())
 
     if len(group_counts) < 2:
@@ -168,33 +168,6 @@ def bgr_colors_to_lab(colors_bgr: np.ndarray) -> np.ndarray:
     colors = colors_bgr.reshape(-1, 1, 3).astype(np.uint8)
     lab = cv2.cvtColor(colors, cv2.COLOR_BGR2LAB)
     return lab.reshape(-1, 3).astype(np.float32)
-
-
-def cluster_two_clip_color_groups(points_lab: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    if len(points_lab) < 2:
-        centers = np.vstack([points_lab[0], points_lab[0]]).astype(np.float32)
-        groups = np.zeros(len(points_lab), dtype=np.int32)
-        return centers, groups
-
-    distances = np.linalg.norm(points_lab[:, None, :] - points_lab[None, :, :], axis=2)
-    first, second = np.unravel_index(np.argmax(distances), distances.shape)
-
-    centers = np.stack([points_lab[first], points_lab[second]]).astype(np.float32)
-    groups = np.zeros(len(points_lab), dtype=np.int32)
-
-    for _ in range(15):
-        distance_to_centers = np.linalg.norm(
-            points_lab[:, None, :] - centers[None, :, :],
-            axis=2,
-        )
-        groups = np.argmin(distance_to_centers, axis=1).astype(np.int32)
-
-        for group in (0, 1):
-            mask = groups == group
-            if np.any(mask):
-                centers[group] = points_lab[mask].mean(axis=0)
-
-    return centers, groups
 
 
 def map_clip_groups_to_existing_team_labels(

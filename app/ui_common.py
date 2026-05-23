@@ -33,6 +33,30 @@ def format_run_label(run: TrainedRunRecord) -> str:
     return f"{run.model} | {run.dataset_variant} | {created_at}"
 
 
+def render_run_selector(
+    *,
+    key: str,
+    empty_message: str | None = None,
+) -> TrainedRunRecord | None:
+    runs = trained_runs()
+    if not runs:
+        st.info(
+            empty_message
+            or (
+                "Brak gotowych runów do analizy. Najpierw uruchom trening, np.: "
+                "`python scripts/train.py --model yolo --dataset-variant base --profile quick`"
+            )
+        )
+        return None
+
+    return st.selectbox(
+        "Wytrenowany model",
+        options=runs,
+        format_func=format_run_label,
+        key=key,
+    )
+
+
 @contextmanager
 def temporary_upload_path(uploaded_file):
     if uploaded_file is None:

@@ -6,7 +6,7 @@ from typing import Any
 import numpy as np
 import streamlit as st
 
-from ui_common import PREVIEW_MEDIA_WIDTH, format_cell, show_counts
+from app.ui_common import PREVIEW_MEDIA_WIDTH, format_cell, show_counts
 
 
 def show_result(

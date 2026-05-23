@@ -4,7 +4,7 @@ from typing import Any
 
 from matplotlib.figure import Figure
 
-from model_analysis.chart_style import (
+from app.model_analysis.chart_style import (
     COLORS,
     apply_chart_header,
     apply_modern_axes,

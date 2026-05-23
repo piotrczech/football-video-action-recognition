@@ -7,9 +7,8 @@ import streamlit as st
 from matplotlib.patches import Rectangle
 
 from murawa.data import DataLoaderError, load_training_split, summarize_variant
-from ui_common import ROOT, dataset_variants
-
-SPLITS = ("train", "valid", "test")
+from murawa.settings import SPLITS
+from app.ui_common import ROOT, dataset_variants
 COLOR_BY_CLASS = {
     "player": "#47DDFF",
     "goalkeeper": "#48C9B0",

@@ -1,17 +1,22 @@
 from pathlib import Path
 
 import streamlit as st
-from ui_common import (
+from app.ui_common import (
     PREVIEW_MEDIA_WIDTH,
     ROOT,
-    format_run_label,
+    render_run_selector,
     show_counts,
     temporary_upload_path,
-    trained_runs,
     video_mime_type,
 )
 
-from murawa.services.pipeline import analyze_match_run
+from murawa.settings import (
+    DEFAULT_SAMPLE_FPS,
+    MAX_SAMPLE_FPS,
+    MAX_VIDEO_DURATION_SECONDS,
+    MIN_SAMPLE_FPS,
+)
+from murawa.services.analysis.pipeline import analyze_match_run
 
 PROGRESS_RANGES = {
     "validate": (0.0, 0.08),
@@ -25,20 +30,10 @@ PROGRESS_RANGES = {
 
 def render() -> None:
     st.subheader("Analizuj mecz")
-    runs = trained_runs()
-    if not runs:
-        st.info(
-            "Brak gotowych runów do analizy. Najpierw uruchom trening, np.: "
-            "`python scripts/train.py --model yolo --dataset-variant base --profile quick`"
-        )
+    selected_run = render_run_selector(key="match_run_name")
+    if selected_run is None:
         return
 
-    selected_run = st.selectbox(
-        "Wytrenowany model",
-        options=runs,
-        format_func=format_run_label,
-        key="match_run_name",
-    )
     uploaded = st.file_uploader(
         "Wgraj klip meczu",
         type=["mp4", "avi", "mov", "mkv", "webm"],
@@ -46,9 +41,9 @@ def render() -> None:
     )
     sample_fps = st.slider(
         "Klatki analizowane na sekundę",
-        min_value=1,
-        max_value=24,
-        value=3,
+        min_value=MIN_SAMPLE_FPS,
+        max_value=MAX_SAMPLE_FPS,
+        value=DEFAULT_SAMPLE_FPS,
         key="match_sample_fps",
     )
     overlay_controls = st.columns(2)
@@ -64,7 +59,7 @@ def render() -> None:
             value=False,
             key="match_show_confidence",
         )
-    st.caption("Obsługiwane są klipy demo do 60 sekund.")
+    st.caption(f"Obsługiwane są klipy demo do {int(MAX_VIDEO_DURATION_SECONDS)} sekund.")
 
     run_clicked = st.button(
         "Uruchom analizę meczu",

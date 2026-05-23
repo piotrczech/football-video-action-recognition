@@ -1,4 +1,4 @@
-"""Backward-compatible re-export for ``from murawa.services.pipeline import ...``."""
+"""Backward-compatible re-export. Prefer ``murawa.services.analysis.pipeline``."""
 
 from murawa.services.analysis.pipeline import (
     analyze_frame,

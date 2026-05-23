@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from model_analysis.glossary import format_metric_value, metric_help
+from app.model_analysis.glossary import format_metric_value, metric_help
 
 
 @dataclass(frozen=True)

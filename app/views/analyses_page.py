@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any
 
 import streamlit as st
-from ui_common import PREVIEW_MEDIA_WIDTH, ROOT, show_counts, video_mime_type
+from app.ui_common import PREVIEW_MEDIA_WIDTH, ROOT, show_counts, video_mime_type
 
 from murawa.services.runtime.saved_match_analyses import SavedMatchAnalysis, list_saved_match_analyses
 

@@ -7,7 +7,7 @@ from typing import Any
 
 import yaml
 
-from murawa.settings import CKPT_DIR, META_DIR
+from murawa.settings import MODELS_CHECKPOINTS, MODELS_METADATA
 
 REQUIRED_METADATA = [
     "config.yaml",
@@ -104,10 +104,10 @@ class StandardizedArtifactCallback:
             "created_at_utc": manifest.created_at_utc,
             "checkpoint": {
                 "file": manifest.checkpoint_file,
-                "relative_path": str(CKPT_DIR / manifest.run_name / manifest.checkpoint_file),
+                "relative_path": str(MODELS_CHECKPOINTS / manifest.run_name / manifest.checkpoint_file),
             },
             "metadata": {
-                "directory": str(META_DIR / manifest.run_name),
+                "directory": str(MODELS_METADATA / manifest.run_name),
                 "required_files": list(manifest.required_metadata),
                 "manifest_file": manifest_path.name,
             },
@@ -121,8 +121,8 @@ class StandardizedArtifactCallback:
         metadata_dir = context.metadata_dir.resolve()
         errors: list[str] = []
 
-        expected_checkpoint = (project_root / CKPT_DIR / context.run_name / "model.pt").resolve()
-        expected_metadata = (project_root / META_DIR / context.run_name).resolve()
+        expected_checkpoint = (project_root / MODELS_CHECKPOINTS / context.run_name / "model.pt").resolve()
+        expected_metadata = (project_root / MODELS_METADATA / context.run_name).resolve()
 
         if checkpoint_path != expected_checkpoint:
             errors.append(f"checkpoint path should be '{expected_checkpoint}', got '{checkpoint_path}'")
@@ -174,15 +174,15 @@ def validate_artifact_contract(project_root: Path, run_name: str) -> None:
     context = ArtifactWriteContext(
         run_name=run_name,
         project_root=project_root,
-        checkpoint_path=project_root / CKPT_DIR / run_name / "model.pt",
-        metadata_dir=project_root / META_DIR / run_name,
+        checkpoint_path=project_root / MODELS_CHECKPOINTS / run_name / "model.pt",
+        metadata_dir=project_root / MODELS_METADATA / run_name,
     )
     StandardizedArtifactCallback().validate_contract(context=context)
 
 
 def load_run_metrics(project_root: Path, run_name: str) -> dict[str, Any]:
     """Load training metadata and metrics for a trained run."""
-    metadata_dir = project_root / META_DIR / run_name
+    metadata_dir = project_root / MODELS_METADATA / run_name
     if not metadata_dir.is_dir():
         raise FileNotFoundError(f"No metadata directory found for run_name='{run_name}'.")
 
@@ -212,7 +212,7 @@ def load_run_metrics(project_root: Path, run_name: str) -> dict[str, Any]:
 
 
 def list_available_runs(project_root: Path) -> list[TrainedRunRecord]:
-    root = project_root / META_DIR
+    root = project_root / MODELS_METADATA
     if not root.exists():
         return []
 
@@ -251,8 +251,8 @@ def latest_run(project_root: Path, model: str, dataset_variant: str) -> str:
 
 
 def _load_run_record(project_root: Path, run_name: str) -> TrainedRunRecord | None:
-    checkpoint_path = project_root / CKPT_DIR / run_name / "model.pt"
-    metadata_dir = project_root / META_DIR / run_name
+    checkpoint_path = project_root / MODELS_CHECKPOINTS / run_name / "model.pt"
+    metadata_dir = project_root / MODELS_METADATA / run_name
     if not checkpoint_path.exists() or not checkpoint_path.is_file():
         return None
     if not metadata_dir.exists() or not metadata_dir.is_dir():

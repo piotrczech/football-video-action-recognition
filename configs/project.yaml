@@ -12,6 +12,17 @@ dataset:
     - train
     - valid
     - test
+  bootstrap:
+    frame_step: 30
+    split_ratios:
+      train: 0.8
+      valid: 0.1
+      test: 0.1
+    valid_from_train_ratio: 0.1
+    default_resolution:
+      width: 1920
+      height: 1080
+    color_cluster_iterations: 12
   image_suffixes:
     - .jpg
     - .jpeg

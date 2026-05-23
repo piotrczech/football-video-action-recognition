@@ -1,26 +1,16 @@
 import streamlit as st
 
-from murawa.services.pipeline import analyze_frame_run
-from ui_common import ROOT, format_run_label, temporary_upload_path, trained_runs
-from result_view import show_result
+from app.result_view import show_result
+from app.ui_common import ROOT, render_run_selector, temporary_upload_path
+from murawa.services.analysis.pipeline import analyze_frame_run
 
 
 def render() -> None:
     st.subheader("Analizuj klatkę")
-    runs = trained_runs()
-    if not runs:
-        st.info(
-            "Brak gotowych runów do analizy. Najpierw uruchom trening, np.: "
-            "`python scripts/train.py --model yolo --dataset-variant base --profile quick`"
-        )
+    selected_run = render_run_selector(key="frame_run_name")
+    if selected_run is None:
         return
 
-    selected_run = st.selectbox(
-        "Wytrenowany model",
-        options=runs,
-        format_func=format_run_label,
-        key="frame_run_name",
-    )
     uploaded = st.file_uploader(
         "Wgraj klatkę (opcjonalnie)", type=["jpg", "jpeg", "png", "bmp"], key="frame_upload"
     )

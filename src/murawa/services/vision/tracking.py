@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 import supervision as sv
 
-from murawa.vision.team_assignment_helpers import normalize_class_name, read_bbox_xyxy
+from murawa.services.vision.team_assignment_helpers import normalize_class_name, read_bbox_xyxy
 
 TRACKING_METHOD = "bytetrack"
 TRACK_SMOOTHING_WINDOW_SECONDS = 15.0

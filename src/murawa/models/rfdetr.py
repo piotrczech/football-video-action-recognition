@@ -18,7 +18,21 @@ import numpy as np
 import yaml
 
 from murawa.data import DataLoaderError, LoadedSplit, load_training_split
-from murawa.services.artifacts import StandardizedArtifactCallback
+from murawa.models.common import (
+    IMAGE_SUFFIXES,
+    as_bool,
+    as_float,
+    as_int,
+    as_optional_int,
+    load_checkpoint_config,
+    require_mapping,
+    resolve_detection_confidence,
+    resolve_project_root,
+    sampling_summary_to_dict,
+    seed_everything,
+    validate_image_frame_path,
+)
+from murawa.services.runtime.artifacts import StandardizedArtifactCallback
 
 logger = logging.getLogger(__name__)
 
@@ -44,11 +58,11 @@ class RfDetrAdapter:
 
         output_dir = output_dir.resolve()
         output_dir.mkdir(parents=True, exist_ok=True)
-        project_root = _resolve_project_root(output_dir=output_dir)
+        project_root = resolve_project_root(output_dir=output_dir)
         cfg = _resolve_training_config(config_path)
         if device is not None:
             cfg["device"] = device
-        _seed_everything(cfg["seed"])
+        seed_everything(cfg["seed"])
         rfdetr_cls = _import_rfdetr(cfg["variant"])
         logger.info(
             "RF-DETR config: variant=%s resolution=%s batch_size=%s "
@@ -178,8 +192,8 @@ class RfDetrAdapter:
             "train_samples": len(train_split.samples),
             "valid_samples": len(valid_split.samples),
             "valid_split_source": valid_split_name,
-            "train_sampling_summary": _sampling_summary_to_dict(train_split),
-            "valid_sampling_summary": _sampling_summary_to_dict(valid_split),
+            "train_sampling_summary": sampling_summary_to_dict(train_split),
+            "valid_sampling_summary": sampling_summary_to_dict(valid_split),
         }
 
     def predict(
@@ -212,20 +226,12 @@ class RfDetrAdapter:
         model = _load_prediction_model(checkpoint_path=checkpoint_path)
 
         class_mapping = _load_class_mapping(checkpoint_path=checkpoint_path)
-        detection_confidence = _resolve_detection_confidence(checkpoint_path=checkpoint_path)
+        detection_confidence = resolve_detection_confidence(checkpoint_path=checkpoint_path, section="rfdetr")
         frame_batches: list[list[dict]] = []
         total_frames = len(frame_paths)
 
         for frame_number, frame_path in enumerate(frame_paths, start=1):
-            resolved_frame = frame_path.resolve()
-            if resolved_frame.suffix.lower() not in IMAGE_SUFFIXES:
-                raise ValueError(
-                    f"RF-DETR sampled frame requires an image file. Received: {resolved_frame}"
-                )
-            if not resolved_frame.exists() or not resolved_frame.is_file():
-                raise FileNotFoundError(
-                    f"RF-DETR sampled frame does not exist: {resolved_frame}"
-                )
+            resolved_frame = validate_image_frame_path(frame_path, backend_name="RF-DETR")
 
             frame_rgb = _read_frame_image_rgb(resolved_frame)
             detections = _predict_image(
@@ -240,7 +246,6 @@ class RfDetrAdapter:
         return frame_batches
 
 
-IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp"}
 METRICS_CSV_NAMES = ("metrics.csv", "results.csv")
 RFDETR_RESOLUTION_BLOCK = 32
 RFDETR_DEFAULT_RESOLUTIONS = {
@@ -303,11 +308,11 @@ def _resolve_training_config(config_path: Path | None) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise RuntimeError(f"Training config '{cfg_path}' must contain a mapping at top-level.")
 
-    training_cfg = _require_mapping(payload.get("training"), key="training", config_path=cfg_path)
-    runtime_cfg = _require_mapping(payload.get("runtime"), key="runtime", config_path=cfg_path)
-    rfdetr_cfg = _require_mapping(payload.get("rfdetr"), key="rfdetr", config_path=cfg_path)
+    training_cfg = require_mapping(payload.get("training"), key="training", config_path=cfg_path)
+    runtime_cfg = require_mapping(payload.get("runtime"), key="runtime", config_path=cfg_path)
+    rfdetr_cfg = require_mapping(payload.get("rfdetr"), key="rfdetr", config_path=cfg_path)
     variant = _as_rfdetr_variant(rfdetr_cfg.get("variant", "medium"))
-    resolution = _as_int(
+    resolution = as_int(
         rfdetr_cfg.get(
             "resolution",
             training_cfg.get("resolution", RFDETR_DEFAULT_RESOLUTIONS[variant]),
@@ -321,12 +326,12 @@ def _resolve_training_config(config_path: Path | None) -> dict[str, Any]:
             "(patch_size=16, num_windows=2), got: "
             f"{resolution}"
         )
-    batch_size = _as_int(
+    batch_size = as_int(
         rfdetr_cfg.get("batch_size", training_cfg.get("batch_size", 2)),
         key="batch_size",
         minimum=1,
     )
-    grad_accum_steps = _as_int(
+    grad_accum_steps = as_int(
         rfdetr_cfg.get("grad_accum_steps", 4),
         key="grad_accum_steps",
         minimum=1,
@@ -334,7 +339,7 @@ def _resolve_training_config(config_path: Path | None) -> dict[str, Any]:
 
     return {
         "variant": variant,
-        "epochs": _as_int(
+        "epochs": as_int(
             rfdetr_cfg.get("epochs", training_cfg.get("epochs", 1)),
             key="epochs",
             minimum=1,
@@ -342,29 +347,29 @@ def _resolve_training_config(config_path: Path | None) -> dict[str, Any]:
         "batch_size": batch_size,
         "grad_accum_steps": grad_accum_steps,
         "effective_batch_size": batch_size * grad_accum_steps,
-        "learning_rate": _as_float(
+        "learning_rate": as_float(
             rfdetr_cfg.get("learning_rate", training_cfg.get("learning_rate", 0.0001)),
             key="learning_rate",
             minimum=0.0,
         ),
         "resolution": resolution,
         "device": _as_device(rfdetr_cfg.get("device", "cuda")),
-        "checkpoint_interval": _as_int(
+        "checkpoint_interval": as_int(
             rfdetr_cfg.get("checkpoint_interval", 10),
             key="checkpoint_interval",
             minimum=1,
         ),
-        "max_train_samples": _as_optional_int(rfdetr_cfg.get("max_train_samples"), "max_train_samples"),
-        "max_valid_samples": _as_optional_int(rfdetr_cfg.get("max_valid_samples"), "max_valid_samples"),
-        "seed": _as_int(runtime_cfg.get("seed", 42), key="seed", minimum=0),
+        "max_train_samples": as_optional_int(rfdetr_cfg.get("max_train_samples"), "max_train_samples"),
+        "max_valid_samples": as_optional_int(rfdetr_cfg.get("max_valid_samples"), "max_valid_samples"),
+        "seed": as_int(runtime_cfg.get("seed", 42), key="seed", minimum=0),
         "weights": str(rfdetr_cfg.get("weights", "default")).strip(),
-        "tensorboard": _as_bool(rfdetr_cfg.get("tensorboard", True), key="tensorboard"),
-        "multi_scale": _as_bool(rfdetr_cfg.get("multi_scale", True), key="multi_scale"),
-        "log_per_class_metrics": _as_bool(
+        "tensorboard": as_bool(rfdetr_cfg.get("tensorboard", True), key="tensorboard"),
+        "multi_scale": as_bool(rfdetr_cfg.get("multi_scale", True), key="multi_scale"),
+        "log_per_class_metrics": as_bool(
             rfdetr_cfg.get("log_per_class_metrics", True),
             key="log_per_class_metrics",
         ),
-        "quiet": _as_bool(rfdetr_cfg.get("quiet", False), key="quiet"),
+        "quiet": as_bool(rfdetr_cfg.get("quiet", False), key="quiet"),
     }
 
 
@@ -506,12 +511,6 @@ def _scale_bbox_xywh(
         max(0.0, float(width) * scale_x),
         max(0.0, float(height) * scale_y),
     ]
-
-
-def _resolve_project_root(output_dir: Path) -> Path:
-    if len(output_dir.parents) >= 3:
-        return output_dir.parents[2]
-    return Path(__file__).resolve().parents[3]
 
 
 def _build_rfdetr_model(rfdetr_cls, weights: str, variant: str):
@@ -715,8 +714,15 @@ def _extract_training_metrics(backend_dir: Path, fallback_epochs: int) -> dict[s
         return metrics
 
     loss_history: list[float] = []
-    val_loss_last: float | None = None
+    val_history: list[float] = []
+    map50_history: list[float] = []
+    map5095_history: list[float] = []
+    precision_history: list[float] = []
+    recall_history: list[float] = []
     map50_last: float | None = None
+    map5095_last: float | None = None
+    precision_last: float | None = None
+    recall_last: float | None = None
     with metrics_csv.open("r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
         for row in reader:
@@ -726,20 +732,54 @@ def _extract_training_metrics(backend_dir: Path, fallback_epochs: int) -> dict[s
 
             val_loss = _first_float(row, ("val/loss", "val_loss"))
             if val_loss is not None:
-                val_loss_last = val_loss
+                val_history.append(val_loss)
 
             map50 = _first_float(row, ("val/mAP_50", "val/ema_mAP_50", "mAP50"))
             if map50 is not None:
+                map50_history.append(map50)
                 map50_last = map50
+
+            map5095 = _first_float(
+                row,
+                ("val/mAP_50_95", "val/mAP_5095", "val/ema_mAP_50_95", "mAP5095", "mAP50-95"),
+            )
+            if map5095 is not None:
+                map5095_history.append(map5095)
+                map5095_last = map5095
+
+            precision = _first_float(row, ("val/precision", "precision", "val/Precision"))
+            if precision is not None:
+                precision_history.append(precision)
+                precision_last = precision
+
+            recall = _first_float(row, ("val/recall", "recall", "val/Recall"))
+            if recall is not None:
+                recall_history.append(recall)
+                recall_last = recall
 
     if loss_history:
         metrics["epochs"] = len(loss_history)
         metrics["loss_history"] = loss_history
         metrics["loss"] = loss_history[-1]
-    if val_loss_last is not None:
-        metrics["val_loss"] = val_loss_last
+    if val_history:
+        metrics["val_loss_history"] = val_history
+        metrics["val_loss"] = val_history[-1]
+    if map50_history:
+        metrics["map50_history"] = map50_history
     if map50_last is not None:
         metrics["mAP50"] = map50_last
+    if map5095_history:
+        metrics["map5095_history"] = map5095_history
+    if map5095_last is not None:
+        metrics["mAP5095"] = map5095_last
+    if precision_history:
+        metrics["precision_history"] = precision_history
+    if precision_last is not None:
+        metrics["precision"] = precision_last
+    if recall_history:
+        metrics["recall_history"] = recall_history
+    if recall_last is not None:
+        metrics["recall"] = recall_last
     return metrics
 
 
@@ -829,41 +869,14 @@ def _resolve_prediction_variant(checkpoint_path: Path) -> str:
     return _as_rfdetr_variant(rfdetr_cfg.get("variant", "medium"))
 
 
-def _resolve_detection_confidence(checkpoint_path: Path) -> float:
-    default_confidence = 0.25
-    rfdetr_cfg = _load_rfdetr_config_for_checkpoint(checkpoint_path)
-    confidence = _as_float(
-        rfdetr_cfg.get("detection_confidence", default_confidence),
-        key="detection_confidence",
-        minimum=0.0,
-    )
-    if confidence > 1.0:
-        raise ValueError(
-            "Config value 'detection_confidence' must be <= 1.0, got: "
-            f"{confidence} (run={checkpoint_path.parent.name})."
-        )
-    return confidence
-
-
 def _load_rfdetr_config_for_checkpoint(checkpoint_path: Path) -> dict[str, Any]:
-    run_name = checkpoint_path.parent.name
-    project_root = checkpoint_path.parents[3]
-    config_path = project_root / "models" / "metadata" / run_name / "config.yaml"
-    if not config_path.exists() or not config_path.is_file():
-        return {}
-
-    try:
-        payload = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-    except Exception as exc:
-        raise RuntimeError(f"Could not parse prediction config '{config_path}': {exc}") from exc
-    if not isinstance(payload, dict):
-        raise RuntimeError(f"Saved training config '{config_path}' must contain a mapping at top-level.")
-
+    payload = load_checkpoint_config(checkpoint_path)
     rfdetr_cfg = payload.get("rfdetr")
     if rfdetr_cfg is None:
         return {}
     if not isinstance(rfdetr_cfg, dict):
-        raise RuntimeError(f"Saved training config '{config_path}' has invalid 'rfdetr' section.")
+        run_name = checkpoint_path.parent.name
+        raise RuntimeError(f"Saved training config for run '{run_name}' has invalid 'rfdetr' section.")
     return rfdetr_cfg
 
 
@@ -883,68 +896,6 @@ def _to_list(value: Any) -> list:
     if hasattr(value, "tolist"):
         return value.tolist()
     return list(value)
-
-
-def _seed_everything(seed: int) -> None:
-    random.seed(seed)
-    try:
-        import numpy as np  # type: ignore
-
-        np.random.seed(seed)
-    except Exception:
-        pass
-    try:
-        import torch
-
-        torch.manual_seed(seed)
-    except Exception:
-        pass
-
-
-def _require_mapping(value: Any, *, key: str, config_path: Path) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise RuntimeError(f"Training config '{config_path}' must include a mapping section '{key}'.")
-    return value
-
-
-def _as_int(value: Any, *, key: str, minimum: int) -> int:
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"Config value '{key}' must be an integer, got: {value!r}") from exc
-    if parsed < minimum:
-        raise ValueError(f"Config value '{key}' must be >= {minimum}, got: {parsed}")
-    return parsed
-
-
-def _as_optional_int(value: Any, key: str) -> int | None:
-    if value is None:
-        return None
-    return _as_int(value, key=key, minimum=1)
-
-
-def _as_float(value: Any, *, key: str, minimum: float) -> float:
-    try:
-        parsed = float(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"Config value '{key}' must be numeric, got: {value!r}") from exc
-    if parsed < minimum:
-        raise ValueError(f"Config value '{key}' must be >= {minimum}, got: {parsed}")
-    return parsed
-
-
-def _as_bool(value: Any, *, key: str) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, int) and value in {0, 1}:
-        return bool(value)
-    if isinstance(value, str):
-        normalized = value.strip().lower()
-        if normalized in {"1", "true", "yes", "on"}:
-            return True
-        if normalized in {"0", "false", "no", "off"}:
-            return False
-    raise ValueError(f"Config value '{key}' must be boolean, got: {value!r}")
 
 
 def _as_rfdetr_variant(value: Any) -> str:
@@ -975,19 +926,3 @@ def _first_float(row: dict[str, str], keys: tuple[str, ...]) -> float | None:
         except (TypeError, ValueError):
             continue
     return None
-
-
-def _sampling_summary_to_dict(split: LoadedSplit) -> dict[str, Any]:
-    if split.sampling_summary is None:
-        return {}
-    summary = split.sampling_summary
-    return {
-        "strategy": summary.strategy,
-        "seed": summary.seed,
-        "requested_max_samples": summary.requested_max_samples,
-        "original_sample_count": summary.original_sample_count,
-        "selected_sample_count": summary.selected_sample_count,
-        "source_counts": summary.source_counts,
-        "density_counts": summary.density_counts,
-        "ball_presence_counts": summary.ball_presence_counts,
-    }

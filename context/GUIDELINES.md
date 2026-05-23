@@ -7,6 +7,8 @@ This file defines lightweight team rules for this repository. The goal is to kee
 - Never hardcode user-specific absolute paths.
 - All paths must be provided through script arguments or config files.
 - Cluster-specific settings must stay in config/CLI values, not in reusable pipeline logic.
+- Project-wide paths and inference defaults live in `configs/project.yaml` (loaded by `murawa.settings`).
+- Training hyperparameters live in `configs/train.full.yaml` and `configs/train.quick.yaml` only.
 
 ## 2. Run Naming and Artifact Standards
 Use a predictable run identifier:

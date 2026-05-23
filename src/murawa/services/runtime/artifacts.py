@@ -3,9 +3,12 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
-CKPT_DIR = Path("models/checkpoints")
-META_DIR = Path("models/metadata")
+import yaml
+
+from murawa.settings import CKPT_DIR, META_DIR
+
 REQUIRED_METADATA = [
     "config.yaml",
     "class_mapping.json",
@@ -177,6 +180,37 @@ def validate_artifact_contract(project_root: Path, run_name: str) -> None:
     StandardizedArtifactCallback().validate_contract(context=context)
 
 
+def load_run_metrics(project_root: Path, run_name: str) -> dict[str, Any]:
+    """Load training metadata and metrics for a trained run."""
+    metadata_dir = project_root / META_DIR / run_name
+    if not metadata_dir.is_dir():
+        raise FileNotFoundError(f"No metadata directory found for run_name='{run_name}'.")
+
+    metrics_summary = _read_json(metadata_dir / "metrics_summary.json")
+    train_metadata = _read_json(metadata_dir / "train_metadata.json")
+    dataset_variant = _read_json(metadata_dir / "dataset_variant.json")
+    class_mapping = _read_json(metadata_dir / "class_mapping.json")
+    training_config = _read_yaml(metadata_dir / "config.yaml")
+
+    if metrics_summary is None and train_metadata is None:
+        raise FileNotFoundError(
+            f"No metrics_summary.json or train_metadata.json found for run_name='{run_name}'."
+        )
+
+    payload: dict[str, Any] = {"run_name": run_name}
+    if metrics_summary is not None:
+        payload["metrics_summary"] = metrics_summary
+    if train_metadata is not None:
+        payload["train_metadata"] = train_metadata
+    if dataset_variant is not None:
+        payload["dataset_variant"] = dataset_variant
+    if class_mapping is not None:
+        payload["class_mapping"] = class_mapping
+    if training_config is not None:
+        payload["training_config"] = training_config
+    return payload
+
+
 def list_available_runs(project_root: Path) -> list[TrainedRunRecord]:
     root = project_root / META_DIR
     if not root.exists():
@@ -261,6 +295,14 @@ def _read_json(path: Path) -> dict | None:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _read_yaml(path: Path) -> dict | None:
+    try:
+        payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
         return None
     return payload if isinstance(payload, dict) else None
 

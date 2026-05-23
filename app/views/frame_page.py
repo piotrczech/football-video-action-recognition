@@ -1,7 +1,8 @@
 import streamlit as st
 
 from murawa.services.pipeline import analyze_frame_run
-from ui_common import ROOT, format_run_label, show_result, temporary_upload_path, trained_runs
+from ui_common import ROOT, format_run_label, temporary_upload_path, trained_runs
+from result_view import show_result
 
 
 def render() -> None:
@@ -45,7 +46,3 @@ def render() -> None:
             show_debug_assets=show_team_debug,
             input_image=input_preview,
         )
-
-
-if __name__ == "__main__":
-    render()

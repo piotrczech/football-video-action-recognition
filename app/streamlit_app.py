@@ -1,20 +1,10 @@
-import sys
-from pathlib import Path
-
 import streamlit as st
 
-APP_DIR = Path(__file__).resolve().parent
-SRC_DIR = APP_DIR.parent / "src"
-
-if str(APP_DIR) not in sys.path:
-    sys.path.insert(0, str(APP_DIR))
-if str(SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(SRC_DIR))
-
-from pages.analyses_page import render as render_analyses_page
-from pages.data_page import render as render_data_page
-from pages.frame_page import render as render_frame_page
-from pages.match_page import render as render_match_page
+from views.analyses_page import render as render_analyses_page
+from views.data_page import render as render_data_page
+from views.frame_page import render as render_frame_page
+from views.match_page import render as render_match_page
+from views.models_page import render as render_models_page
 
 
 def main() -> None:
@@ -24,7 +14,13 @@ def main() -> None:
 
     selected_view = st.sidebar.radio(
         "Widok",
-        options=["Analizuj klatkę", "Analizuj mecz", "Przeglądaj analizy", "Przegląd danych"],
+        options=[
+            "Analizuj klatkę",
+            "Analizuj mecz",
+            "Przeglądaj analizy",
+            "Przegląd danych",
+            "Analiza modeli",
+        ],
     )
 
     if selected_view == "Analizuj klatkę":
@@ -35,6 +31,9 @@ def main() -> None:
         return
     if selected_view == "Przeglądaj analizy":
         render_analyses_page()
+        return
+    if selected_view == "Analiza modeli":
+        render_models_page()
         return
 
     render_data_page()

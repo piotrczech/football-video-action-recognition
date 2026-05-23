@@ -1,0 +1,38 @@
+paths:
+  data_raw: data/raw
+  data_ready: data/ready
+  models_checkpoints: models/checkpoints
+  models_metadata: models/metadata
+  outputs_predictions: outputs/predictions
+  outputs_videos: outputs/videos
+
+dataset:
+  default_variant: base
+  splits:
+    - train
+    - valid
+    - test
+  image_suffixes:
+    - .jpg
+    - .jpeg
+    - .png
+    - .bmp
+  video_suffixes:
+    - .mp4
+    - .avi
+    - .mov
+    - .mkv
+    - .webm
+
+detection_classes:
+  0: player
+  1: goalkeeper
+  2: referee
+  3: ball
+
+inference:
+  default_sample_fps: 3
+  min_sample_fps: 1
+  max_sample_fps: 24
+  max_video_duration_seconds: 60.0
+  detection_confidence: 0.25

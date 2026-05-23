@@ -144,7 +144,3 @@ def _detect_source(file_name: str) -> str:
     if lowered.startswith("soccernet_"):
         return "soccernet"
     return "unknown"
-
-
-if __name__ == "__main__":
-    render()

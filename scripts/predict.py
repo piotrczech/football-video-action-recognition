@@ -5,10 +5,11 @@ import json
 import logging
 from pathlib import Path
 
+from murawa.settings import PROJECT_ROOT
 from murawa.services.pipeline import analyze_frame, analyze_match
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = PROJECT_ROOT
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger("predict")
 

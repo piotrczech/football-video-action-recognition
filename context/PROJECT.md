@@ -10,7 +10,9 @@ The most important project assumptions are:
 - a shared pipeline for both models,
 - shared training and prediction scripts wherever possible,
 - model training on the cluster and local use of saved artifacts,
-- final integration through a Streamlit application,
+- final integration through a Streamlit application with five views (frame, match, saved analyses, dataset overview, model metrics),
 - comparison of both model quality and data variant impact.
+
+For the final code layout and module map, see [`context/ARCHITECTURE.md`](ARCHITECTURE.md).
 
 This file provides the common context for all issues in the project.

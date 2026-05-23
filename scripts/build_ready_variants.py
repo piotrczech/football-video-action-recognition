@@ -5,20 +5,15 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-SRC_DIR = ROOT / "src"
-if str(SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(SRC_DIR))
-
-from murawa.data.variant_assembly import (  # noqa: E402
+from murawa.data.variant_assembly import (
     SUPPORTED_VARIANTS,
     VariantAssemblyConfig,
     assemble_variant,
     describe_variant,
 )
+from murawa.settings import DATA_RAW, DATA_READY, PROJECT_ROOT
 
 LOGGER = logging.getLogger("build-ready-variants")
 
@@ -35,11 +30,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--selected-root",
-        default=str(ROOT / "data" / "selected"),
+        default=str(PROJECT_ROOT / DATA_RAW),
+        help="Bootstrap source root (defaults to data/raw).",
     )
     parser.add_argument(
         "--final-root",
-        default=str(ROOT / "data" / "ready"),
+        default=str(PROJECT_ROOT / DATA_READY),
     )
     parser.add_argument(
         "--frame-step",

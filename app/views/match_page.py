@@ -163,6 +163,3 @@ def _show_match_result(result: dict) -> None:
         show_counts("Drużyny", stats.get("team_counts", {}), "Etykieta")
     with st.expander("Raw summary", expanded=False):
         st.json(result)
-
-if __name__ == "__main__":
-    render()

@@ -1,15 +1,21 @@
 from __future__ import annotations
 
-import json
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 import random
 
-READY_ROOT = Path("data/ready")
+from murawa.data.coco_io import CocoIOError, load_coco_split
+from murawa.settings import (
+    DATA_READY,
+    SPLITS,
+    SUPPORTED_IMAGE_EXTENSIONS,
+    resolve_project_root,
+    resolve_variant_dir,
+)
+
 TRAIN_SPLIT = "train"
-KNOWN_SPLITS = ("train", "valid", "test")
-SUPPORTED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp"}
+KNOWN_SPLITS = SPLITS
 
 
 class DataLoaderError(RuntimeError):
@@ -95,13 +101,6 @@ class VariantSummary:
                 for split, summary in self.split_summaries.items()
             },
         }
-
-
-def preprocess_every_nth_frame(frame_step: int) -> None:
-    _ = frame_step
-    raise NotImplementedError(
-        "TODO(Issue #08): use murawa.data.frame_selection.select_n_frames + preprocess_selected_frames."
-    )
 
 
 def load_training_split(
@@ -231,14 +230,15 @@ def summarize_variant(project_root: Path, dataset_variant: str) -> VariantSummar
 
 
 def _resolve_variant_dir(project_root: Path, dataset_variant: str) -> Path:
-    variant_dir = (project_root / READY_ROOT / dataset_variant).resolve()
-    if not variant_dir.exists() or not variant_dir.is_dir():
+    try:
+        return resolve_variant_dir(project_root, dataset_variant, strict=True)
+    except FileNotFoundError as exc:
+        variant_dir = (resolve_project_root(project_root) / DATA_READY / dataset_variant).resolve()
         _raise_loader_error(
             variant_dir=variant_dir,
             split=TRAIN_SPLIT,
-            detail=f"Dataset variant '{dataset_variant}' does not exist.",
+            detail=str(exc),
         )
-    return variant_dir
 
 
 def _validated_available_splits(variant_dir: Path, validated_split: str) -> tuple[str, ...]:
@@ -257,51 +257,15 @@ def _validated_available_splits(variant_dir: Path, validated_split: str) -> tupl
 
 
 def _load_coco_payload(variant_dir: Path, split: str) -> tuple[dict, Path, Path]:
-    split_dir = variant_dir / split
-    if not split_dir.exists() or not split_dir.is_dir():
-        _raise_loader_error(variant_dir=variant_dir, split=split, detail=f"Split directory '{split}' does not exist.")
-
-    annotation_path = split_dir / "_annotations.coco.json"
-    if not annotation_path.exists() or not annotation_path.is_file():
-        _raise_loader_error(
-            variant_dir=variant_dir,
-            split=split,
-            detail=f"Missing COCO file '{annotation_path.name}'.",
-        )
-
     try:
-        payload = json.loads(annotation_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        _raise_loader_error(
-            variant_dir=variant_dir,
-            split=split,
-            detail=f"Invalid JSON in '{annotation_path.name}': {exc}",
-        )
-
-    if not isinstance(payload, dict):
-        _raise_loader_error(
-            variant_dir=variant_dir,
-            split=split,
-            detail=f"COCO payload in '{annotation_path.name}' must be a JSON object.",
-        )
-
-    missing_keys = [key for key in ("images", "annotations", "categories") if key not in payload]
-    if missing_keys:
-        _raise_loader_error(
-            variant_dir=variant_dir,
-            split=split,
-            detail=f"COCO payload is missing keys: {','.join(missing_keys)}.",
-        )
+        payload, annotation_path, split_dir = load_coco_split(variant_dir=variant_dir, split=split)
+    except CocoIOError as exc:
+        _raise_loader_error(variant_dir=variant_dir, split=split, detail=str(exc))
+        raise AssertionError("unreachable")
 
     images = payload.get("images")
     annotations = payload.get("annotations")
     categories = payload.get("categories")
-    if not isinstance(images, list) or not isinstance(annotations, list) or not isinstance(categories, list):
-        _raise_loader_error(
-            variant_dir=variant_dir,
-            split=split,
-            detail="COCO keys 'images', 'annotations', 'categories' must all be lists.",
-        )
     if not images:
         _raise_loader_error(variant_dir=variant_dir, split=split, detail="COCO list 'images' is empty.")
     if not annotations:
@@ -630,7 +594,7 @@ def _raise_loader_error(variant_dir: Path, split: str, detail: str) -> None:
                 f"Data loader error for variant='{variant_dir.name}', split='{split}': {detail}",
                 f"Checked path: {variant_dir / split}",
                 "Expected format: data/ready/<variant>/<split>/_annotations.coco.json with image files referenced by COCO.",
-                "Hint: przygotuj dane do common format i uruchom preprocessing (TODO: Issue #8 - wybór co n-tej klatki).",
+                "Hint: prepare data in the common format and run bootstrap/assembly scripts.",
             ]
         )
     )

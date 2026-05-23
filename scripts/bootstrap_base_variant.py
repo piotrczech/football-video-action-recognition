@@ -4,20 +4,15 @@ from __future__ import annotations
 
 import argparse
 import logging
-import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-SRC_DIR = ROOT / "src"
-if str(SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(SRC_DIR))
-
-from murawa.data.bootstrap_variant import (  # noqa: E402
+from murawa.data.bootstrap_variant import (
     BootstrapConfig,
     BootstrapError,
     SUPPORTED_VARIANTS,
     build_bootstrap_variant,
 )
+from murawa.settings import PROJECT_ROOT
 
 LOGGER = logging.getLogger("bootstrap-base-variant")
 
@@ -68,7 +63,7 @@ def main() -> int:
     for variant in variants_to_build:
         try:
             result = build_bootstrap_variant(
-                project_root=ROOT,
+                project_root=PROJECT_ROOT,
                 config=BootstrapConfig(
                     output_variant=variant,
                     frame_step=args.frame_step,

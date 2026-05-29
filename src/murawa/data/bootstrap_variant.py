@@ -24,7 +24,7 @@ from murawa.settings import (
 )
 
 LOGGER = logging.getLogger("bootstrap-base-variant")
-SUPPORTED_VARIANTS = ("base", "extended", "extended-only-train")
+SUPPORTED_VARIANTS = ("base", "extended")
 
 SOCCERNET_SPLIT_ALIASES: dict[str, tuple[str, ...]] = {
     "train": ("train",),
@@ -40,7 +40,6 @@ BALL_EXTRA_SPLIT_ALIASES: dict[str, tuple[str, ...]] = {
 VARIANT_BALL_EXTRA_POLICY: dict[str, dict[str, bool]] = {
     "base": {"train": False, "valid": False, "test": False},
     "extended": {"train": True, "valid": True, "test": True},
-    "extended-only-train": {"train": True, "valid": True, "test": False},
 }
 
 class BootstrapError(RuntimeError):
@@ -333,11 +332,10 @@ def collect_ball_extra_samples_by_split(root: Path) -> dict[str, list[CandidateS
             if not isinstance(category, dict) or not isinstance(category.get("id"), int):
                 continue
             raw_name = str(category.get("name", "")).strip().lower()
-            raw_id = category["id"]
-            if "ball" in raw_name:
-                category_map[raw_id] = CATEGORY_NAME_TO_ID["ball"]
-            elif "player" in raw_name:
-                category_map[raw_id] = CATEGORY_NAME_TO_ID["player"]
+            mapped = _map_ball_extra_category(raw_name)
+            if mapped is None:
+                continue
+            category_map[category["id"]] = mapped
 
         ann_by_image: dict[int, list[CandidateAnnotation]] = defaultdict(list)
         for annotation in payload.get("annotations", []):
@@ -597,6 +595,20 @@ def _resolve_split_dir(root: Path, aliases: tuple[str, ...]) -> tuple[Path | Non
         if candidate.exists() and candidate.is_dir():
             return candidate, alias
     return None, None
+
+
+def _map_ball_extra_category(raw_name: str) -> int | None:
+    if not raw_name:
+        return None
+    if "goalkeeper" in raw_name:
+        return CATEGORY_NAME_TO_ID.get("goalkeeper")
+    if "referee" in raw_name:
+        return CATEGORY_NAME_TO_ID.get("referee")
+    if "ball" in raw_name:
+        return CATEGORY_NAME_TO_ID.get("ball")
+    if "player" in raw_name:
+        return CATEGORY_NAME_TO_ID.get("player")
+    return None
 
 
 def _validate_config(config: BootstrapConfig) -> None:

@@ -75,9 +75,8 @@ def save_config(src: Path, dst: Path, model: str, dataset_variant: str) -> bool:
 
 def make_run_name(model: str, dataset_variant: str, created_at: datetime, tag: str = "auto") -> str:
     sanitized_tag = sanitize_run_tag(tag)
-    if sanitized_tag != "auto":
-        return sanitized_tag
-    return f"{model}_{dataset_variant}_{created_at.strftime('%Y%m%d-%H%M')}_auto"
+    suffix = sanitized_tag if sanitized_tag != "auto" else "auto"
+    return f"{model}_{dataset_variant}_{created_at.strftime('%Y%m%d-%H%M')}_{suffix}"
 
 
 def sanitize_run_tag(tag: str | None) -> str:

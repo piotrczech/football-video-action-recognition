@@ -2,6 +2,7 @@
 
 import argparse
 import logging
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -36,7 +37,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--name",
         default="auto",
-        help="Optional explicit run name. If omitted, an auto name based on model, variant, and timestamp is used.",
+        help=(
+            "Optional run tag or full run name. If omitted, an auto name based on model, variant, "
+            "and timestamp is used."
+        ),
     )
     parser.add_argument(
         "--no-amp",
@@ -76,7 +80,11 @@ def main() -> int:
 
     sampled_annotations = sum(len(sample.annotations) for sample in loaded_split.samples)
     created_at = datetime.now(timezone.utc)
-    run_name = make_run_name(model_name, args.dataset_variant, created_at, tag=run_tag)
+    if run_tag != "auto" and _looks_like_run_name(run_tag):
+        run_name = run_tag
+        run_tag = run_tag.split("_")[-1]
+    else:
+        run_name = make_run_name(model_name, args.dataset_variant, created_at, tag=run_tag)
 
     ckpt_dir = ROOT / MODELS_CHECKPOINTS / run_name
     meta_dir = ROOT / MODELS_METADATA / run_name
@@ -216,6 +224,10 @@ def _resolve_profile_config(profile: str) -> Path:
 
 def _non_empty_dir(path: Path) -> bool:
     return path.exists() and path.is_dir() and any(path.iterdir())
+
+
+def _looks_like_run_name(name: str) -> bool:
+    return re.match(r"^[a-z0-9-]+_[a-z0-9-]+_\d{8}-\d{4}_[a-z0-9-]+$", name) is not None
 
 
 def _run_artifact_callback_hooks(

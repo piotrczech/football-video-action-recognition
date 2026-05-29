@@ -80,9 +80,8 @@ def main() -> int:
 
     sampled_annotations = sum(len(sample.annotations) for sample in loaded_split.samples)
     created_at = datetime.now(timezone.utc)
-    if run_tag != "auto" and _looks_like_run_name(run_tag):
+    if run_tag != "auto":
         run_name = run_tag
-        run_tag = run_tag.split("_")[-1]
     else:
         run_name = make_run_name(model_name, args.dataset_variant, created_at, tag=run_tag)
 

@@ -8,7 +8,7 @@ The final system should:
 - detect players, goalkeepers, referees, and the ball,
 - track identities across frames,
 - assign players to teams,
-- generate a minimap and output video,
+- generate an output video,
 - expose the flow through a Streamlit app.
 
 The experimental track compares YOLO and RF-DETR, including data-variant impact analysis.
@@ -49,6 +49,17 @@ pip install -e .
 
 Local development environment used by the team: `pyenv activate ml`.
 
+### Pull trained models (Git LFS)
+
+The repository stores trained models via Git LFS. After cloning, run:
+
+```bash
+git lfs install
+git lfs pull
+```
+
+This downloads LFS-tracked artifacts (for example the contents of `models/checkpoints/`).
+
 ### Prepare raw data
 
 To start working with this repository, the required datasets must be available locally.  
@@ -63,7 +74,7 @@ The script will report missing datasets and print the next required step.
 The most important setup details are:
 
 - a `.env` file containing `SOCCERNET_PASSWORD` is required only when using `python scripts/prepare_raw_data.py --download-soccernet`
-- the downloaded ball-extra dataset must be extracted into `data/raw/ball-extra` (<a href="https://universe.roboflow.com/footballvisionai/playersdetection-2-vfmys/dataset/2" target="_blank" rel="noopener noreferrer">link</a>)
+- the downloaded ball-extra dataset must be extracted into `data/raw/ball-extra` (<a href="https://universe.roboflow.com/footballvisionai/playersdetection-2-vfmys/dataset/1" target="_blank" rel="noopener noreferrer">link</a>)
 - SoccerNet data can be downloaded into `data/raw/soccernet` with `python scripts/prepare_raw_data.py --download-soccernet`
 - SoccerNet `challenge`/`challenge2023` is an image-only split in the tracking release. It is
   validated as raw input, but it is not used for supervised training because it has no labels.

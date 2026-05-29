@@ -1,0 +1,8 @@
+path: C:/Users/TOMAHAWK/Desktop/STUDIA/Applied Mathematics/1 semestr/football-video-action-recognition/_yolo_ds/yolo-ext-transformed-quick
+train: train/images
+val: valid/images
+names:
+  0: player
+  1: goalkeeper
+  2: referee
+  3: ball

@@ -34,6 +34,7 @@ checkpoints/
 runs/
 mlruns/
 wandb/
+_yolo_ds/
 
 # Keep repository scaffolding in tracked dirs
 !data/**/

@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "run_name": "rfdetr-extended-full-v2",
+  "model": "rfdetr",
+  "dataset_variant": "extended",
+  "created_at_utc": "2026-05-31T21:19:48.734902+00:00",
+  "checkpoint": {
+    "file": "model.pt",
+    "relative_path": "models/checkpoints/rfdetr-extended-full-v2/model.pt"
+  },
+  "metadata": {
+    "directory": "models/metadata/rfdetr-extended-full-v2",
+    "required_files": [
+      "config.yaml",
+      "class_mapping.json",
+      "train_metadata.json",
+      "metrics_summary.json",
+      "dataset_variant.json"
+    ],
+    "manifest_file": "manifest.json"
+  }
+}

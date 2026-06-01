@@ -1,15 +1,15 @@
 {
   "schema_version": 1,
-  "run_name": "rfdetr-base-full-h100-v1",
+  "run_name": "rfdetr-extended-transformed-v2",
   "model": "rfdetr",
-  "dataset_variant": "base",
-  "created_at_utc": "2026-05-14T06:56:22.519567+00:00",
+  "dataset_variant": "extended-transformed",
+  "created_at_utc": "2026-05-31T20:18:02.492329+00:00",
   "checkpoint": {
     "file": "model.pt",
-    "relative_path": "models/checkpoints/rfdetr-base-full-h100-v1/model.pt"
+    "relative_path": "models/checkpoints/rfdetr-extended-transformed-v2/model.pt"
   },
   "metadata": {
-    "directory": "models/metadata/rfdetr-base-full-h100-v1",
+    "directory": "models/metadata/rfdetr-extended-transformed-v2",
     "required_files": [
       "config.yaml",
       "class_mapping.json",

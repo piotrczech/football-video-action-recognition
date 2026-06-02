@@ -1,4 +1,5 @@
 import csv
+import hashlib
 from collections.abc import Callable
 from dataclasses import dataclass
 import importlib
@@ -74,7 +75,7 @@ class YoloAdapter:
         valid_split = splits.valid_split
         valid_split_name = splits.valid_split_source
 
-        dataset_root = output_dir / "_ultralytics_dataset"
+        dataset_root = project_root / "_yolo_ds" / output_dir.name
         data_yaml_path, class_names = _prepare_ultralytics_dataset(
             train_split=train_split,
             valid_split=valid_split,
@@ -274,11 +275,16 @@ def _write_split_as_yolo(split: LoadedSplit, split_root: Path, category_to_idx: 
     labels_dir.mkdir(parents=True, exist_ok=True)
 
     for sample in split.samples:
-        dst_stem = f"{sample.image_id}_{sample.image_path.stem}"
+        dst_stem = f"{sample.image_id}_{_compact_stem(sample.image_path.stem)}"
         dst_image = images_dir / f"{dst_stem}{sample.image_path.suffix.lower()}"
         dst_label = labels_dir / f"{dst_stem}.txt"
 
-        shutil.copy2(sample.image_path, dst_image)
+        try:
+            shutil.copy2(sample.image_path, dst_image)
+        except FileNotFoundError as exc:
+            raise FileNotFoundError(
+                f"Failed to copy image. source='{sample.image_path}' target='{dst_image}'"
+            ) from exc
 
         label_lines: list[str] = []
         for ann in sample.annotations:
@@ -304,6 +310,14 @@ def _write_split_as_yolo(split: LoadedSplit, split_root: Path, category_to_idx: 
             )
 
         dst_label.write_text("\n".join(label_lines) + ("\n" if label_lines else ""), encoding="utf-8")
+
+
+def _compact_stem(stem: str, max_len: int = 80) -> str:
+    if len(stem) <= max_len:
+        return stem
+    digest = hashlib.sha256(stem.encode("utf-8")).hexdigest()[:10]
+    prefix_len = max_len - len(digest) - 1
+    return f"{stem[:prefix_len]}-{digest}"
 
 
 def _resolve_best_checkpoint(results: Any) -> Path:

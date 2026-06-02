@@ -1,0 +1,36 @@
+{
+  "run_name": "yolo-base-transformed-v2",
+  "model": "yolo",
+  "framework": "pytorch",
+  "backend": "ultralytics-yolo",
+  "created_at_utc": "2026-05-31T18:46:40.085604+00:00",
+  "run_tag": "yolo-base-transformed-v2",
+  "dataset_variant": "base-transformed",
+  "resolved_training_path": "/lustre/pd03/hpc-piotrczech-1774303727/football-video-action-recognition/data/ready/base-transformed",
+  "profile": "full",
+  "config_argument": "/home/jakubciaglo/jakubciaglo/football-video-action-recognition/configs/train.full.yaml",
+  "config_found": true,
+  "train_device": "auto",
+  "train_amp": true,
+  "force_cpu": false,
+  "train_samples": 2566,
+  "valid_samples": 142,
+  "valid_split_source": "valid",
+  "model_impl": "YoloAdapter",
+  "loader_summary": {
+    "validated_split": "train",
+    "preflight_checked_images": 16,
+    "sampled_annotations": 278,
+    "total_images_in_split": 2566,
+    "total_annotations_in_split": 44102,
+    "class_mapping_source": "coco.categories",
+    "class_mapping": {
+      "0": "player",
+      "1": "goalkeeper",
+      "2": "referee",
+      "3": "ball"
+    }
+  },
+  "train_sampling_summary": {},
+  "valid_sampling_summary": {}
+}

@@ -19,7 +19,7 @@ LOGGER = logging.getLogger("bootstrap-base-variant")
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Build Stage-2 dataset variants (base, extended, extended-only-train)."
+        description="Build Stage-2 dataset variants (base, extended)."
     )
     parser.add_argument(
         "--variant",

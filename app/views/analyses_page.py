@@ -22,7 +22,7 @@ def render() -> None:
         hide_index=True,
         height="content",
         on_select="rerun",
-        selection_mode="single-row-required",
+        selection_mode="single-row",
         key="saved_match_analyses",
     )
     selected_rows = table_state.selection.rows

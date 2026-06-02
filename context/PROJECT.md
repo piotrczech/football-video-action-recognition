@@ -4,6 +4,12 @@ This project focuses on football match video analysis using machine learning and
 
 In the experimental part, two detection models will be compared: YOLO and RF-DETR. In addition, the impact of different data variants will be evaluated: the base SoccerNet dataset, SoccerNet extended with an additional ball-focused dataset, and variants that include image transformations and preprocessing. Model training will be performed through `.py` scripts on the university cluster, while trained models will later be loaded locally for prediction and integration with the application.
 
+The four reportable dataset variants map directly to `data/ready` as follows:
+- base -> `data/ready/base` (SoccerNet only)
+- extended -> `data/ready/extended` (SoccerNet + ball-extra with full bbox classes)
+- base-transformed -> `data/ready/base-transformed` (base + train-only transforms)
+- extended-transformed -> `data/ready/extended-transformed` (extended + train-only transforms)
+
 The project is practical in nature and must be completed within a single semester. For that reason, the scope has been intentionally limited. The goal is not jersey number recognition or identification of specific players, but rather stable object detection, model comparison, integration with tracking, and generation of a clear final visualization.
 
 The most important project assumptions are:

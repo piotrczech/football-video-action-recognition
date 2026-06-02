@@ -63,5 +63,5 @@ def _show_figure(builder: Callable[[], Any | None]) -> None:
     if fig is None:
         st.caption("Brak danych do wykresu.")
         return
-    st.pyplot(fig, use_container_width=False)
+    st.pyplot(fig, width="content")
     plt.close(fig)

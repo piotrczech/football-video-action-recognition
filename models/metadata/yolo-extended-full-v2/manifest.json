@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "run_name": "yolo-extended-full-v2",
+  "model": "yolo",
+  "dataset_variant": "extended",
+  "created_at_utc": "2026-05-31T18:45:41.381834+00:00",
+  "checkpoint": {
+    "file": "model.pt",
+    "relative_path": "models/checkpoints/yolo-extended-full-v2/model.pt"
+  },
+  "metadata": {
+    "directory": "models/metadata/yolo-extended-full-v2",
+    "required_files": [
+      "config.yaml",
+      "class_mapping.json",
+      "train_metadata.json",
+      "metrics_summary.json",
+      "dataset_variant.json"
+    ],
+    "manifest_file": "manifest.json"
+  }
+}

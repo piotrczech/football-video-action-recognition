@@ -1,0 +1,47 @@
+{
+  "dataset_variant": "extended",
+  "variant_dir": "/lustre/pd03/hpc-piotrczech-1774303727/football-video-action-recognition/data/ready/extended",
+  "available_splits": [
+    "train",
+    "valid",
+    "test"
+  ],
+  "split_summaries": {
+    "train": {
+      "split_dir": "/lustre/pd03/hpc-piotrczech-1774303727/football-video-action-recognition/data/ready/extended/train",
+      "annotation_path": "/lustre/pd03/hpc-piotrczech-1774303727/football-video-action-recognition/data/ready/extended/train/_annotations.coco.json",
+      "total_images": 4395,
+      "total_annotations": 92528,
+      "class_mapping": {
+        "0": "player",
+        "1": "goalkeeper",
+        "2": "referee",
+        "3": "ball"
+      }
+    },
+    "valid": {
+      "split_dir": "/lustre/pd03/hpc-piotrczech-1774303727/football-video-action-recognition/data/ready/extended/valid",
+      "annotation_path": "/lustre/pd03/hpc-piotrczech-1774303727/football-video-action-recognition/data/ready/extended/valid/_annotations.coco.json",
+      "total_images": 813,
+      "total_annotations": 17241,
+      "class_mapping": {
+        "0": "player",
+        "1": "goalkeeper",
+        "2": "referee",
+        "3": "ball"
+      }
+    },
+    "test": {
+      "split_dir": "/lustre/pd03/hpc-piotrczech-1774303727/football-video-action-recognition/data/ready/extended/test",
+      "annotation_path": "/lustre/pd03/hpc-piotrczech-1774303727/football-video-action-recognition/data/ready/extended/test/_annotations.coco.json",
+      "total_images": 1576,
+      "total_annotations": 26628,
+      "class_mapping": {
+        "0": "player",
+        "1": "goalkeeper",
+        "2": "referee",
+        "3": "ball"
+      }
+    }
+  }
+}

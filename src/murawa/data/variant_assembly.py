@@ -26,8 +26,8 @@ from murawa.settings import DEFAULT_FRAME_STEP, infer_project_root_from_ready_ro
 
 SUPPORTED_VARIANTS = (
     *BOOTSTRAP_VARIANTS,
+    "base-transformed",
     "extended-transformed",
-    "extended-only-train-transformed",
 )
 
 
@@ -157,10 +157,10 @@ def _resolve_variant_spec(variant_name: str) -> VariantSpec:
             transforms_enabled=True,
         )
 
-    if variant_name == "extended-only-train-transformed":
+    if variant_name == "base-transformed":
         return VariantSpec(
             variant_name=variant_name,
-            source_variant="extended-only-train",
+            source_variant="base",
             transforms_enabled=True,
         )
 

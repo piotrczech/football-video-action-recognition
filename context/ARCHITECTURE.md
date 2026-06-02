@@ -96,7 +96,7 @@ Imports inside `app/` use the `app.*` package prefix (run with `streamlit run ap
 |--------|------|
 | `scripts/prepare_raw_data.py` | Validate/download raw datasets |
 | `scripts/bootstrap_base_variant.py` | Build base/extended variants in `data/ready` |
-| `scripts/build_ready_variants.py` | Build transformed ready variants |
+| `scripts/build_ready_variants.py` | Build ready variants (base, extended, base-transformed, extended-transformed) |
 | `scripts/train.py` | Train YOLO or RF-DETR, write checkpoints + metadata |
 | `scripts/predict.py` | CLI inference for frame/match modes |
 

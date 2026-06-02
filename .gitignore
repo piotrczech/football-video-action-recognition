@@ -34,23 +34,18 @@ checkpoints/
 runs/
 mlruns/
 wandb/
+_yolo_ds/
 
 # Keep repository scaffolding in tracked dirs
+!data/
+!models/
+!outputs/
 !data/**/
 !models/**/
 !outputs/**/
 !data/**/.gitkeep
 !models/**/.gitkeep
 !outputs/**/.gitkeep
-
-# yolo-ready-base
-!models/checkpoints/yolo-ready-base/**
-!models/metadata/yolo-ready-base/**
-!models/checkpoints/yolo-ready-base/model.pt
-
-#rfdetr-ready-base
-!models/checkpoints/rfdetr-ready-base/**
-!models/metadata/rfdetr-ready-base/**
 
 # Model and export files
 *.pt
@@ -61,6 +56,80 @@ wandb/
 *.h5
 *.pkl
 *.joblib
+
+# Keep selected model files and metadata
+!models/
+!models/checkpoints/
+!models/metadata/
+
+# yolo-ready-base
+!models/checkpoints/yolo-ready-base/
+!models/checkpoints/yolo-ready-base/**
+!models/metadata/yolo-ready-base/
+!models/metadata/yolo-ready-base/**
+!models/checkpoints/yolo-ready-base/model.pt
+
+# rfdetr-ready-base
+!models/checkpoints/rfdetr-ready-base/
+!models/checkpoints/rfdetr-ready-base/**
+!models/metadata/rfdetr-ready-base/
+!models/metadata/rfdetr-ready-base/**
+
+# rfdetr-base-full-v2
+!models/checkpoints/rfdetr-base-full-v2/
+!models/checkpoints/rfdetr-base-full-v2/**
+!models/metadata/rfdetr-base-full-v2/
+!models/metadata/rfdetr-base-full-v2/**
+!models/checkpoints/rfdetr-base-full-v2/model.pt
+
+# rfdetr-base-transformed-v2
+!models/checkpoints/rfdetr-base-transformed-v2/
+!models/checkpoints/rfdetr-base-transformed-v2/**
+!models/metadata/rfdetr-base-transformed-v2/
+!models/metadata/rfdetr-base-transformed-v2/**
+!models/checkpoints/rfdetr-base-transformed-v2/model.pt
+
+# rfdetr-extended-full-v2
+!models/checkpoints/rfdetr-extended-full-v2/
+!models/checkpoints/rfdetr-extended-full-v2/**
+!models/metadata/rfdetr-extended-full-v2/
+!models/metadata/rfdetr-extended-full-v2/**
+!models/checkpoints/rfdetr-extended-full-v2/model.pt
+
+# rfdetr-extended-transformed-v2
+!models/checkpoints/rfdetr-extended-transformed-v2/
+!models/checkpoints/rfdetr-extended-transformed-v2/**
+!models/metadata/rfdetr-extended-transformed-v2/
+!models/metadata/rfdetr-extended-transformed-v2/**
+!models/checkpoints/rfdetr-extended-transformed-v2/model.pt
+
+# yolo-base-full-v2
+!models/checkpoints/yolo-base-full-v2/
+!models/checkpoints/yolo-base-full-v2/**
+!models/metadata/yolo-base-full-v2/
+!models/metadata/yolo-base-full-v2/**
+!models/checkpoints/yolo-base-full-v2/model.pt
+
+# yolo-base-transformed-v2
+!models/checkpoints/yolo-base-transformed-v2/
+!models/checkpoints/yolo-base-transformed-v2/**
+!models/metadata/yolo-base-transformed-v2/
+!models/metadata/yolo-base-transformed-v2/**
+!models/checkpoints/yolo-base-transformed-v2/model.pt
+
+# yolo-extended-full-v2
+!models/checkpoints/yolo-extended-full-v2/
+!models/checkpoints/yolo-extended-full-v2/**
+!models/metadata/yolo-extended-full-v2/
+!models/metadata/yolo-extended-full-v2/**
+!models/checkpoints/yolo-extended-full-v2/model.pt
+
+# yolo-extended-transformed-v2
+!models/checkpoints/yolo-extended-transformed-v2/
+!models/checkpoints/yolo-extended-transformed-v2/**
+!models/metadata/yolo-extended-transformed-v2/
+!models/metadata/yolo-extended-transformed-v2/**
+!models/checkpoints/yolo-extended-transformed-v2/model.pt
 
 # Video outputs
 *.mp4

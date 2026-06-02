@@ -5,7 +5,7 @@
 #SBATCH -N 1
 #SBATCH -c 16
 #SBATCH --mem=128gb
-#SBATCH --time=12:00:00
+#SBATCH --time=24:00:00
 #SBATCH --job-name=football-train
 #SBATCH --output=/lustre/pd03/hpc-piotrczech-1774303727/football-video-action-recognition/logs/%x_%j.out
 #SBATCH --error=/lustre/pd03/hpc-piotrczech-1774303727/football-video-action-recognition/logs/%x_%j.err
@@ -29,7 +29,7 @@ VENV="${VENV:-$PROJECT_SHARED/venvs/football-$USER}"
 MODEL="${MODEL:-yolo}"
 DATASET_VARIANT="${DATASET_VARIANT:-base}"
 PROFILE="${PROFILE:-quick}"
-RUN_NAME="${RUN_NAME:-${MODEL}--${DATASET_VARIANT}--${PROFILE}--slurm-${SLURM_JOB_ID}}"
+RUN_NAME="${RUN_NAME:-full-h100-v2}"
 EXTRA_ARGS="${EXTRA_ARGS:-}"
 
 mkdir -p "$PROJECT_SHARED/logs"

@@ -1,0 +1,59 @@
+{
+  "schema_version": 3,
+  "run_name": "yolo-extended-transformed-v2",
+  "model": "yolo",
+  "dataset_variant": "extended-transformed",
+  "iou_threshold": 0.5,
+  "conf_threshold": 0.25,
+  "images_evaluated": 142,
+  "images_total": 645,
+  "elapsed_seconds": 368.2,
+  "coco_map50": 0.859109,
+  "coco_map5095": 0.552409,
+  "per_class": {
+    "player": {
+      "precision": 0.958735,
+      "recall": 0.979201,
+      "f1": 0.96886,
+      "tp": 1789,
+      "fp": 77,
+      "fn": 38,
+      "support": 1827,
+      "AP50": 0.969129,
+      "AP5095": 0.685507
+    },
+    "goalkeeper": {
+      "precision": 0.935065,
+      "recall": 0.972973,
+      "f1": 0.953642,
+      "tp": 72,
+      "fp": 5,
+      "fn": 2,
+      "support": 74,
+      "AP50": 0.969505,
+      "AP5095": 0.655206
+    },
+    "referee": {
+      "precision": 0.872881,
+      "recall": 0.936364,
+      "f1": 0.903509,
+      "tp": 206,
+      "fp": 30,
+      "fn": 14,
+      "support": 220,
+      "AP50": 0.925105,
+      "AP5095": 0.617842
+    },
+    "ball": {
+      "precision": 0.699187,
+      "recall": 0.614286,
+      "f1": 0.653992,
+      "tp": 86,
+      "fp": 37,
+      "fn": 54,
+      "support": 140,
+      "AP50": 0.572699,
+      "AP5095": 0.251079
+    }
+  }
+}

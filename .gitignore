@@ -36,6 +36,7 @@ mlruns/
 wandb/
 _yolo_ds/
 
+
 # Keep repository scaffolding in tracked dirs
 !data/
 !models/
@@ -146,3 +147,6 @@ football/
 
 # Local tooling marker
 .codex
+
+# Keep specific video exceptions
+!data/videos/messi_real.mp4

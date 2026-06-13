@@ -150,3 +150,7 @@ football/
 
 # Keep specific video exceptions
 !data/videos/messi_real.mp4
+!outputs/videos/rfdetrmp4.mp4
+!outputs/videos/yolomp4.mp4
+!outputs/videos/rfdetrmp4_h264.mp4
+!outputs/videos/yolomp4_h264.mp4

@@ -1,0 +1,59 @@
+{
+  "schema_version": 3,
+  "run_name": "rfdetr-extended-full-v2",
+  "model": "rfdetr",
+  "dataset_variant": "extended",
+  "iou_threshold": 0.5,
+  "conf_threshold": 0.25,
+  "images_evaluated": 142,
+  "images_total": 645,
+  "elapsed_seconds": 122.2,
+  "coco_map50": 0.92301,
+  "coco_map5095": 0.610256,
+  "per_class": {
+    "player": {
+      "precision": 0.988043,
+      "recall": 0.995074,
+      "f1": 0.991546,
+      "tp": 1818,
+      "fp": 22,
+      "fn": 9,
+      "support": 1827,
+      "AP50": 0.990039,
+      "AP5095": 0.703415
+    },
+    "goalkeeper": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "tp": 74,
+      "fp": 0,
+      "fn": 0,
+      "support": 74,
+      "AP50": 1.0,
+      "AP5095": 0.702922
+    },
+    "referee": {
+      "precision": 0.986425,
+      "recall": 0.990909,
+      "f1": 0.988662,
+      "tp": 218,
+      "fp": 3,
+      "fn": 2,
+      "support": 220,
+      "AP50": 0.989135,
+      "AP5095": 0.659986
+    },
+    "ball": {
+      "precision": 0.821138,
+      "recall": 0.721429,
+      "f1": 0.768061,
+      "tp": 101,
+      "fp": 22,
+      "fn": 39,
+      "support": 140,
+      "AP50": 0.712866,
+      "AP5095": 0.374702
+    }
+  }
+}

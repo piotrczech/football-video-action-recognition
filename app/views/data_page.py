@@ -18,21 +18,21 @@ COLOR_BY_CLASS = {
 
 
 def render() -> None:
-    st.subheader("Przegląd danych")
+    st.subheader("Data overview")
 
-    variant = st.selectbox("Wariant danych", dataset_variants(), key="data_view_variant")
+    variant = st.selectbox("Dataset variant", dataset_variants(), key="data_view_variant")
     split = st.selectbox("Split", SPLITS, key="data_view_split")
-    max_examples = st.slider("Liczba przykładów do podglądu", min_value=1, max_value=12, value=6)
-    only_with_ball = st.checkbox("Pokaż tylko próbki z piłką", value=False, key="data_view_ball_only")
+    max_examples = st.slider("Number of examples to preview", min_value=1, max_value=12, value=6)
+    only_with_ball = st.checkbox("Show only samples with the ball", value=False, key="data_view_ball_only")
 
     try:
         summary = summarize_variant(project_root=ROOT, dataset_variant=variant)
     except DataLoaderError as exc:
-        st.error(f"Nie można wczytać podsumowania wariantu: {exc}")
+        st.error(f"Could not load variant summary: {exc}")
         return
 
     if split not in summary.available_splits:
-        st.warning(f"Split '{split}' nie istnieje dla wariantu '{variant}'.")
+        st.warning(f"Split '{split}' does not exist for variant '{variant}'.")
         return
 
     try:
@@ -43,7 +43,7 @@ def render() -> None:
             max_samples=None,
         )
     except DataLoaderError as exc:
-        st.error(f"Nie można wczytać splitu '{split}': {exc}")
+        st.error(f"Could not load split '{split}': {exc}")
         return
 
     _render_stats(loaded)
@@ -54,7 +54,7 @@ def render() -> None:
     preview_samples = preview_samples[:max_examples]
 
     if not preview_samples:
-        st.info("Brak próbek do podglądu dla wybranych filtrów.")
+        st.info("No samples to preview for the selected filters.")
         return
 
     cols = st.columns(2)
@@ -81,7 +81,7 @@ def _render_stats(loaded) -> None:
         if has_ball:
             ball_images += 1
 
-    st.markdown("**Statystyki splitu**")
+    st.markdown("**Split statistics**")
     st.json(
         {
             "dataset_variant": loaded.dataset_variant,
@@ -106,7 +106,7 @@ def _render_sample_preview(sample):
         ax.text(
             0.5,
             0.5,
-            f"Nie można odczytać obrazu\n{sample.image_path.name}\n{exc}",
+            f"Could not read image\n{sample.image_path.name}\n{exc}",
             ha="center",
             va="center",
             transform=ax.transAxes,

@@ -20,52 +20,52 @@ class MetricDefinition:
 METRIC_DEFINITIONS: dict[str, MetricDefinition] = {
     "loss": MetricDefinition(
         key="loss",
-        label="Loss (trening)",
-        short="Strata treningowa",
-        description="Suma składowych funkcji straty na zbiorze treningowym.",
-        interpretation="Niższa wartość oznacza lepsze dopasowanie do danych treningowych.",
+        label="Loss (training)",
+        short="Training loss",
+        description="Sum of loss components on the training set.",
+        interpretation="Lower value means better fit to the training data.",
     ),
     "val_loss": MetricDefinition(
         key="val_loss",
-        label="Loss (walidacja)",
-        short="Strata walidacyjna",
-        description="Funkcja straty liczona na zbiorze walidacyjnym.",
-        interpretation="Niższa wartość oznacza lepszą generalizację.",
+        label="Loss (validation)",
+        short="Validation loss",
+        description="Loss computed on the validation set.",
+        interpretation="Lower value means better generalization.",
     ),
     "mAP50": MetricDefinition(
         key="mAP50",
         label="mAP@0.5 (valid)",
         short="mAP50",
-        description="Mean Average Precision @ IoU=0.5 na zbiorze walidacyjnym.",
-        interpretation="Skala 0–1; wyższa wartość = lepsza detekcja. W detekcji obiektów mAP liczy się tylko na valid — nie ma odpowiednika train/val jak przy loss.",
+        description="Mean Average Precision @ IoU=0.5 on the validation set.",
+        interpretation="Scale 0–1; higher value means better detection. In object detection, mAP is computed on validation data only — there is no train/val equivalent like for loss.",
     ),
     "mAP5095": MetricDefinition(
         key="mAP5095",
         label="mAP@0.5:0.95 (valid)",
         short="mAP50-95",
-        description="Średnie AP po progach IoU od 0.5 do 0.95 na zbiorze walidacyjnym.",
-        interpretation="Bardziej rygorystyczna metryka niż mAP@0.5; wyższa = lepiej.",
+        description="Average AP over IoU thresholds from 0.5 to 0.95 on the validation set.",
+        interpretation="More strict metric than mAP@0.5; higher is better.",
     ),
     "precision": MetricDefinition(
         key="precision",
         label="Precision (valid)",
         short="Precision",
-        description="Odsetek trafnych detekcji wśród wszystkich predykcji modelu (valid).",
-        interpretation="Wyższa precision = mniej fałszywych alarmów.",
+        description="Share of correct detections among all model predictions on the validation set.",
+        interpretation="Higher precision means fewer false positives.",
     ),
     "recall": MetricDefinition(
         key="recall",
         label="Recall (valid)",
         short="Recall",
-        description="Odsetek wykrytych obiektów względem wszystkich obiektów w annotacjach (valid).",
-        interpretation="Wyższy recall = mniej przeoczonych obiektów.",
+        description="Share of detected objects among all annotated objects on the validation set.",
+        interpretation="Higher recall means fewer missed objects.",
     ),
     "epochs": MetricDefinition(
         key="epochs",
-        label="Epoki",
-        short="Epoki",
-        description="Liczba epok treningowych z zapisaną historią metryk.",
-        interpretation="Kontekst dla krzywych uczenia.",
+        label="Epochs",
+        short="Epochs",
+        description="Number of training epochs with recorded metric history.",
+        interpretation="Context for the learning curves.",
     ),
 }
 
@@ -73,9 +73,9 @@ METRIC_DEFINITIONS: dict[str, MetricDefinition] = {
 def glossary_rows() -> list[dict[str, str]]:
     return [
         {
-            "Metryka": definition.label,
-            "Opis": definition.description,
-            "Interpretacja": definition.interpretation,
+            "Metric": definition.label,
+            "Description": definition.description,
+            "Interpretation": definition.interpretation,
         }
         for definition in METRIC_DEFINITIONS.values()
     ]
@@ -92,7 +92,7 @@ _LOSS_METRICS = {"loss", "val_loss"}
 
 def format_metric_value(key: str, value: Any) -> str:
     if value is None:
-        return "brak"
+        return "missing"
     if key in _RATIO_METRICS and isinstance(value, (int, float)):
         return f"{float(value):.4f}"
     if key in _LOSS_METRICS and isinstance(value, (int, float)):

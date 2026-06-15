@@ -19,8 +19,8 @@ def show_result(
         return
 
     if result["status"] != "ok":
-        st.error(result.get("message", "Analiza zakończyła się błędem."))
-        with st.expander("Szczegóły błędu", expanded=False):
+        st.error(result.get("message", "Analysis failed."))
+        with st.expander("Error details", expanded=False):
             st.json(result)
         return
 
@@ -32,7 +32,7 @@ def show_result(
         )
         return
 
-    st.success("Przetwarzanie zakończone.")
+    st.success("Processing completed.")
     with st.expander("Raw result", expanded=False):
         st.json(result)
 
@@ -51,7 +51,7 @@ def _show_frame_result(
     show_debug_assets: bool,
     input_image: bytes | str | Path | None,
 ) -> None:
-    st.success("Analiza klatki zakończona.")
+    st.success("Frame analysis completed.")
 
     stats = _mapping(result.get("stats"))
     team_assignment = _mapping(result.get("team_assignment"))
@@ -69,35 +69,35 @@ def _show_frame_result(
 
     st.divider()
     summary_tab, team_tab, minimap_tab, raw_tab = st.tabs(
-        ["Podsumowanie", "Drużyny", "Minimapa", "Raw JSON"]
+        ["Summary", "Teams", "Minimap", "Raw JSON"]
     )
 
     with summary_tab:
         cols = st.columns(2)
         with cols[0]:
-            show_counts("Klasy detekcji", stats.get("classes", {}), "Klasa")
+            show_counts("Detection classes", stats.get("classes", {}), "Class")
         with cols[1]:
             _show_primary_ball_filter(result)
 
-        st.markdown("**Detekcje**")
+        st.markdown("**Detections**")
         rows = _detection_rows(detections)
         if rows:
             st.dataframe(rows, hide_index=True, height="content", width="stretch")
         else:
-            st.caption("Brak detekcji do pokazania.")
+            st.caption("No detections to show.")
 
     with team_tab:
         cols = st.columns(2)
         with cols[0]:
-            show_counts("Podsumowanie drużyn", team_assignment.get("team_counts", {}), "Etykieta")
+            show_counts("Team summary", team_assignment.get("team_counts", {}), "Label")
         with cols[1]:
             _show_team_colors(team_assignment)
 
-        st.markdown("**Wizualizacja cech kolorów koszulek**")
+        st.markdown("**Jersey color feature visualization**")
         _show_team_feature_scatter(detections)
 
         if show_debug_assets:
-            st.markdown("**Debug cropów koszulek**")
+            st.markdown("**Jersey crop debug previews**")
             for asset in _list_of_strings(result.get("debug_preview_assets"))[:3]:
                 debug_file = Path(asset)
                 if debug_file.exists():
@@ -120,10 +120,10 @@ def _show_frame_metrics(
     team_counts = _mapping(team_assignment.get("team_counts"))
 
     metrics = st.columns(5)
-    metrics[0].metric("Detekcje", _count_value(stats.get("total_detections")))
-    metrics[1].metric("Klasy", str(len(class_counts)))
-    metrics[2].metric("Śr. confidence", _confidence_value(stats.get("mean_confidence")))
-    metrics[3].metric("Drużyny / role", str(len(team_counts)))
+    metrics[0].metric("Detections", _count_value(stats.get("total_detections")))
+    metrics[1].metric("Classes", str(len(class_counts)))
+    metrics[2].metric("Avg. confidence", _confidence_value(stats.get("mean_confidence")))
+    metrics[3].metric("Teams / role", str(len(team_counts)))
     metrics[4].metric("Minimap entities", str(len(minimap_entities)))
 
 
@@ -135,7 +135,7 @@ def _show_frame_previews(
     left, right = st.columns(2)
 
     with left:
-        st.markdown("**Klatka wejściowa**")
+        st.markdown("**Input frame**")
         if input_image is not None:
             st.image(input_image, caption="Input", width="stretch")
         else:
@@ -143,40 +143,40 @@ def _show_frame_previews(
             if resolved_input is not None and resolved_input.exists():
                 st.image(str(resolved_input), caption=resolved_input.name, width="stretch")
             else:
-                st.caption("Brak dostępnego podglądu wejścia.")
+                st.caption("No input preview available.")
 
     with right:
-        st.markdown("**Wynik analizy**")
+        st.markdown("**Analysis result**")
         preview_file = _first_existing_path(_list_of_strings(result.get("preview_assets")))
         if preview_file is not None:
             st.image(str(preview_file), caption=preview_file.name, width="stretch")
         else:
-            st.caption("Brak wygenerowanego preview.")
+            st.caption("No generated preview available.")
 
 
 def _show_primary_ball_filter(result: dict) -> None:
     primary_ball = _mapping(result.get("primary_ball_filter"))
-    st.markdown("**Filtrowanie piłki**")
+    st.markdown("**Ball filtering**")
     if not primary_ball:
-        st.caption("Brak danych.")
+        st.caption("No data.")
         return
 
     st.table(
         [
-            {"Pole": "Włączone", "Wartość": format_cell(primary_ball.get("enabled"))},
-            {"Pole": "Polityka", "Wartość": format_cell(primary_ball.get("policy"))},
-            {"Pole": "Detekcje przed", "Wartość": format_cell(primary_ball.get("raw_detection_count"))},
-            {"Pole": "Detekcje po", "Wartość": format_cell(primary_ball.get("filtered_detection_count"))},
-            {"Pole": "Piłki po", "Wartość": format_cell(primary_ball.get("ball_candidates_after"))},
+            {"Field": "Enabled", "Value": format_cell(primary_ball.get("enabled"))},
+            {"Field": "Policy", "Value": format_cell(primary_ball.get("policy"))},
+            {"Field": "Detections before", "Value": format_cell(primary_ball.get("raw_detection_count"))},
+            {"Field": "Detections after", "Value": format_cell(primary_ball.get("filtered_detection_count"))},
+            {"Field": "Ball candidates after", "Value": format_cell(primary_ball.get("ball_candidates_after"))},
         ]
     )
 
 
 def _show_team_colors(team_assignment: dict[str, Any]) -> None:
     colors = _mapping(team_assignment.get("team_colors_bgr"))
-    st.markdown("**Kolory drużyn**")
+    st.markdown("**Team colors**")
     if not colors:
-        st.caption("Brak danych o kolorach.")
+        st.caption("No data o kolorach.")
         return
 
     rows = []
@@ -186,7 +186,7 @@ def _show_team_colors(team_assignment: dict[str, Any]) -> None:
         b, g, r = [int(v) for v in color]
         rows.append(
             {
-                "Etykieta": team,
+                "Label": team,
                 "BGR": f"[{b}, {g}, {r}]",
                 "RGB": f"[{r}, {g}, {b}]",
             }
@@ -195,20 +195,20 @@ def _show_team_colors(team_assignment: dict[str, Any]) -> None:
     if rows:
         st.table(rows)
     else:
-        st.caption("Brak poprawnych kolorów.")
+        st.caption("No valid colors.")
 
 
 def _show_team_feature_scatter(detections: list[dict[str, Any]]) -> None:
     rows = _team_feature_rows(detections)
     if len(rows) < 2:
-        st.caption("Za mało zawodników z kolorem koszulki, żeby pokazać wykres.")
+        st.caption("Not enough players with jersey color data to show the chart.")
         return
 
     projection_name = rows[0].get("projection", "2D projection")
 
     st.caption(
-        f"Wizualizacja pomocnicza: `{projection_name}`. "
-        "UMAP jest używany, jeżeli `umap-learn` jest dostępny; inaczej używany jest fallback PCA."
+        f"Auxiliary visualization: `{projection_name}`. "
+        "UMAP is used if `umap-learn` is available; otherwise a PCA fallback is used."
     )
 
     spec = {
@@ -254,7 +254,7 @@ def _show_team_feature_scatter(detections: list[dict[str, Any]]) -> None:
 
 def _show_minimap_entities(minimap_entities: list[dict[str, Any]]) -> None:
     if not minimap_entities:
-        st.caption("Brak danych minimapy.")
+        st.caption("No data minimapy.")
         return
 
     rows = []

@@ -43,14 +43,14 @@ def render_run_selector(
         st.info(
             empty_message
             or (
-                "Brak gotowych runów do analizy. Najpierw uruchom trening, np.: "
+                "No trained runs available. Run training first, for example: "
                 "`python scripts/train.py --model yolo --dataset-variant base --profile quick`"
             )
         )
         return None
 
     return st.selectbox(
-        "Wytrenowany model",
+        "Trained model",
         options=runs,
         format_func=format_run_label,
         key=key,
@@ -77,10 +77,10 @@ def temporary_upload_path(uploaded_file):
 def show_counts(title: str, counts: object, key_label: str) -> None:
     st.markdown(f"**{title}**")
     if not isinstance(counts, dict) or not counts:
-        st.caption("Brak danych.")
+        st.caption("No data.")
         return
     st.table(
-        [{key_label: str(key), "Liczba": str(value)} for key, value in sorted(counts.items())]
+        [{key_label: str(key), "Count": str(value)} for key, value in sorted(counts.items())]
     )
 
 
@@ -90,7 +90,7 @@ def video_mime_type(video_path: Path) -> str:
     return "video/mp4"
 
 
-def format_cell(value: object, *, empty_label: str = "brak") -> str:
+def format_cell(value: object, *, empty_label: str = "missing") -> str:
     if value is None:
         return empty_label
     if isinstance(value, str) and not value.strip():

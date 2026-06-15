@@ -20,29 +20,29 @@ from app.views.models_page import render as render_models_page
 def main() -> None:
     st.set_page_config(page_title="Murawa", layout="wide")
     st.title("Murawa")
-    st.caption("Analiza klatek i klipów meczowych.")
+    st.caption("Frame and match clip analysis.")
 
     selected_view = st.sidebar.radio(
-        "Widok",
+        "View",
         options=[
-            "Analizuj klatkę",
-            "Analizuj mecz",
-            "Przeglądaj analizy",
-            "Przegląd danych",
-            "Analiza modeli",
+            "Frame analysis",
+            "Match analysis",
+            "Saved analyses",
+            "Data overview",
+            "Model analysis",
         ],
     )
 
-    if selected_view == "Analizuj klatkę":
+    if selected_view == "Frame analysis":
         render_frame_page()
         return
-    if selected_view == "Analizuj mecz":
+    if selected_view == "Match analysis":
         render_match_page()
         return
-    if selected_view == "Przeglądaj analizy":
+    if selected_view == "Saved analyses":
         render_analyses_page()
         return
-    if selected_view == "Analiza modeli":
+    if selected_view == "Model analysis":
         render_models_page()
         return
 

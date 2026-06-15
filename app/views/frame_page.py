@@ -6,21 +6,21 @@ from murawa.services.analysis.pipeline import analyze_frame_run
 
 
 def render() -> None:
-    st.subheader("Analizuj klatkę")
+    st.subheader("Frame analysis")
     selected_run = render_run_selector(key="frame_run_name")
     if selected_run is None:
         return
 
     uploaded = st.file_uploader(
-        "Wgraj klatkę (opcjonalnie)", type=["jpg", "jpeg", "png", "bmp"], key="frame_upload"
+        "Upload frame (optional)", type=["jpg", "jpeg", "png", "bmp"], key="frame_upload"
     )
     show_team_debug = st.checkbox(
-        "Wyświetl podgląd rozpoznawania drużyn",
+        "Show team assignment debug preview",
         value=False,
         key="frame_show_team_debug",
     )
 
-    if st.button("Uruchom analizę klatki", key="run_frame"):
+    if st.button("Run frame analysis", key="run_frame"):
         with temporary_upload_path(uploaded) as upload_path:
             st.session_state["frame_last_result"] = analyze_frame_run(
                 project_root=ROOT,

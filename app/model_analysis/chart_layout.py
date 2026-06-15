@@ -61,7 +61,7 @@ def render_chart(builder: Callable[[], Any | None]) -> None:
 def _show_figure(builder: Callable[[], Any | None]) -> None:
     fig = builder()
     if fig is None:
-        st.caption("Brak danych do wykresu.")
+        st.caption("No data do wykresu.")
         return
     st.pyplot(fig, width="content")
     plt.close(fig)

@@ -49,15 +49,15 @@ def format_run_context(
 ) -> str:
     parts = [
         _cell(metadata.get("model", fallback_model)),
-        f"wariant: {_cell(metadata.get('dataset_variant', fallback_variant))}",
-        f"profil: {_cell(metadata.get('profile'))}",
+        f"variant: {_cell(metadata.get('dataset_variant', fallback_variant))}",
+        f"profile: {_cell(metadata.get('profile'))}",
         f"train/valid: {_cell(metadata.get('train_samples'))}/{_cell(metadata.get('valid_samples'))}",
         _cell(metadata.get("created_at_utc", fallback_created_at)),
     ]
-    return " · ".join(part for part in parts if part and part != "brak")
+    return " · ".join(part for part in parts if part and part != "missing")
 
 
-def _cell(value: Any, *, empty_label: str = "brak") -> str:
+def _cell(value: Any, *, empty_label: str = "missing") -> str:
     if value is None:
         return empty_label
     if isinstance(value, str) and not value.strip():

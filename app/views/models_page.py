@@ -17,11 +17,11 @@ from app.ui_common import ROOT, render_run_selector
 
 
 def render() -> None:
-    st.subheader("Analiza modeli")
+    st.subheader("Model analysis")
     selected_run = render_run_selector(
         key="models_run_name",
         empty_message=(
-            "Brak gotowych runów treningowych. Najpierw uruchom trening, np.: "
+            "No training runs available. Run training first, for example: "
             "`python scripts/train.py --model yolo --dataset-variant base --profile quick`"
         ),
     )
@@ -58,10 +58,10 @@ def render() -> None:
 def _render_kpi_section(metrics: dict) -> None:
     kpi_items = build_kpi_items(metrics)
     if not kpi_items:
-        st.caption("Brak metryk końcowych w metadanych.")
+        st.caption("No final metrics found in metadata.")
         return
 
-    st.markdown("**Metryki końcowe**")
+    st.markdown("**Final metrics**")
     columns = st.columns(min(len(kpi_items), 4))
     for index, item in enumerate(kpi_items):
         definition = METRIC_DEFINITIONS.get(item.label)
@@ -108,17 +108,17 @@ def _render_training_curves(metrics: dict) -> None:
         )
 
     if not chart_builders:
-        st.caption("Brak historii metryk treningowych w metadanych.")
+        st.caption("No training metric history found in metadata.")
         return
 
-    render_chart_grid(chart_builders, section_title="Krzywe treningu")
+    render_chart_grid(chart_builders, section_title="Training curves")
 
 
 def _render_glossary(metrics: dict) -> None:
-    with st.expander("Co oznaczają metryki?"):
+    with st.expander("What do the metrics mean?"):
         st.table(glossary_rows())
         if not as_float_list(metrics.get("map50_history")):
             st.caption(
-                "mAP, precision i recall są liczone wyłącznie na zbiorze walidacyjnym — "
-                "backend detekcji nie raportuje ich odpowiedników train w trakcie uczenia."
+                "mAP, precision and recall are computed only on the validation set — "
+                "the detection backend does not report their training equivalents during learning."
             )

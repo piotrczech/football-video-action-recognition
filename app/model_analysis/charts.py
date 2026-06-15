@@ -26,8 +26,8 @@ def build_loss_chart(
     fig, ax = new_figure()
     apply_chart_header(
         ax,
-        "Loss treningowy vs walidacyjny",
-        "Niższa wartość = lepiej",
+        "Training vs validation loss",
+        "Lower is better",
     )
 
     ax.plot(epochs, loss_history, label="Train", color=COLORS["train"], linewidth=2.2)
@@ -41,19 +41,19 @@ def build_loss_chart(
             color=COLORS["val"],
             linestyle=(0, (4, 3)),
             linewidth=1.6,
-            label=f"Valid (końcowa: {val_loss_scalar:.3f})",
+            label=f"Valid (final: {val_loss_scalar:.3f})",
         )
         ax.text(
             0.02,
             0.04,
-            "Brak historii val loss — linia przerywana to wartość końcowa.",
+            "No validation loss history — dashed line shows the final value.",
             transform=ax.transAxes,
             fontsize=7.5,
             color=COLORS["text_muted"],
             bbox={"boxstyle": "round,pad=0.35", "facecolor": COLORS["annotation_bg"], "edgecolor": "none"},
         )
 
-    ax.set_xlabel("Epoka")
+    ax.set_xlabel("Epoch")
     ax.set_ylabel("Loss")
     apply_modern_axes(ax)
     ax.legend(loc="upper right", frameon=False, fontsize=8, labelcolor=COLORS["text_muted"])
@@ -78,7 +78,7 @@ def build_val_map_chart(
     apply_chart_header(ax, title, subtitle)
     ax.fill_between(epochs, history, alpha=0.12, color=color)
     ax.plot(epochs, history, label=label, color=color, linewidth=2.2)
-    ax.set_xlabel("Epoka")
+    ax.set_xlabel("Epoch")
     ax.set_ylabel(ylabel)
     ax.set_ylim(0.0, min(1.0, max(history) * 1.15 + 0.05))
     apply_modern_axes(ax)
@@ -91,7 +91,7 @@ def build_val_map50_chart(map50_history: list[float]) -> Figure | None:
     return build_val_map_chart(
         map50_history,
         title="mAP@0.5 (valid)",
-        subtitle="Metryka detekcji na zbiorze walidacyjnym · wyżej = lepiej",
+        subtitle="Detection metrics on the validation set · higher is better",
         ylabel="mAP@0.5",
         color=COLORS["map50"],
         label="Valid mAP@0.5",
@@ -102,7 +102,7 @@ def build_val_map5095_chart(map5095_history: list[float]) -> Figure | None:
     return build_val_map_chart(
         map5095_history,
         title="mAP@0.5:0.95 (valid)",
-        subtitle="Średnie AP po progach IoU 0.5–0.95 · wyżej = lepiej",
+        subtitle="Average AP over IoU thresholds 0.5–0.95 · higher is better",
         ylabel="mAP@0.5:0.95",
         color=COLORS["map5095"],
         label="Valid mAP@0.5:0.95",
@@ -121,8 +121,8 @@ def build_precision_recall_chart(
     fig, ax = new_figure()
     apply_chart_header(
         ax,
-        "Precision i recall (valid)",
-        "Metryki detekcji na zbiorze walidacyjnym · wyżej = lepiej",
+        "Precision and recall (valid)",
+        "Detection metrics on the validation set · higher is better",
     )
 
     if precision_history:
@@ -142,8 +142,8 @@ def build_precision_recall_chart(
             linewidth=2.2,
         )
 
-    ax.set_xlabel("Epoka")
-    ax.set_ylabel("Wartość")
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Value")
     ax.set_xlim(0.5, length + 0.5)
     ax.set_ylim(0.0, 1.05)
     apply_modern_axes(ax)
